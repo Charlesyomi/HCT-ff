@@ -1,0 +1,25 @@
+{
+    "name": "adesoba-fish-farm-shop",
+    "private": true,
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "dev": "npm run dev --workspace apps/web",
+        "web:dev": "npm run dev --workspace apps/web",
+        "web:build": "npm run build --workspace apps/web",
+        "web:lint": "npm run lint --workspace apps/web",
+        "web:typecheck": "npm run typecheck --workspace apps/web",
+        "web:test": "npm run test --workspace apps/web",
+        "api:test": "node scripts/python-tool.mjs pytest apps/api/tests",
+        "api:lint": "node scripts/python-tool.mjs ruff check apps/api",
+        "api:typecheck": "node scripts/python-tool.mjs mypy apps/api",
+        "lint": "npm run web:lint && npm run api:lint",
+        "typecheck": "npm run web:typecheck && npm run api:typecheck",
+        "test": "npm run web:test && npm run api:test",
+        "db:up": "docker compose up -d postgres",
+        "dev:docker": "docker compose up --build",
+        "migrate": "node scripts/python-tool.mjs migrate upgrade head",
+        "seed": "node scripts/python-tool.mjs seed"
+    }
+}

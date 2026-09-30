@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --brand-900: #0b3d2a;
+    --brand-700: #0f5f3e;
+    --brand-100: #e8f3ec;
+    --accent-400: #f6b93b;
+    --status-available: #8cc63f;
+    --whatsapp: #1e8e4e;
+    --surface: #ffffff;
+    --surface-soft: #fbfcfb;
+    --surface-tint: #f4f9f5;
+    --border: #e6ece8;
+    --border-soft: #dfeae3;
+    --border-strong: #cfded4;
+    --border-accent: #a9cead;
+    --header-glass: rgba(255, 255, 255, 0.9);
+    --text: #17372e;
+    --text-muted: #53675f;
+    --text-secondary: #557065;
+    --text-on-dark: #edf5f1;
+    --text-on-accent: #28200a;
+    --text-hero: #e3eee7;
+    --text-hero-bright: #f0f6f1;
+    --status-error: #9c3126;
+    --hero-overlay: linear-gradient(90deg, rgba(7, 43, 31, 0.94) 0%, rgba(7, 43, 31, 0.82) 48%, rgba(7, 43, 31, 0.47) 100%);
+    --availability-limited-bg: #fff1d2;
+    --availability-limited-text: #765000;
+    --availability-available-bg: #edf8df;
+    --availability-available-text: #355f17;
+    --availability-sold-out-bg: #eef1ef;
+    --availability-neutral-text: #53675f;
+    --availability-unavailable-border: #becdc4;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--surface-tint);
+    color: var(--text);
+}
+
+a {
+    text-decoration: none;
+}
+
+.hero-scrim {
+    background-image: var(--hero-overlay);
+}
+
+button,
+input,
+textarea,
+select {
+    font: inherit;
+}

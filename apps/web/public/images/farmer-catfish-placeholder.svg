@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" role="img" aria-labelledby="title desc">
+  <title id="title">Farmer holding catfish photograph placeholder</title>
+  <desc id="desc">Replace with a photograph of the farm owner holding a healthy catfish.</desc>
+  <rect width="1200" height="750" fill="#e7eee7"/>
+  <path d="M0 425c194-106 339-29 485-17 175 15 374-117 715-72v414H0z" fill="#6d9877"/>
+  <path d="M0 540c232-61 374-5 533-17 197-15 378-92 667-44v287H0z" fill="#315f4a"/>
+  <circle cx="618" cy="226" r="92" fill="#b9825a"/>
+  <path d="M520 213c15-105 183-129 215-9-56-25-99-35-215 9z" fill="#263e32"/>
+  <path d="M430 615c17-197 77-293 188-293 120 0 182 99 194 293z" fill="#f0c75e"/>
+  <path d="M550 416c58 44 123 53 193 26" fill="none" stroke="#b9825a" stroke-linecap="round" stroke-width="25"/>
+  <path d="M376 449c80 4 127 32 168 96M822 456c-69 2-124 32-168 91" fill="none" stroke="#b9825a" stroke-linecap="round" stroke-width="23"/>
+  <text x="600" y="700" fill="#f4f7ec" font-family="sans-serif" font-size="25" text-anchor="middle">Replace with a farm portrait</text>
+</svg>

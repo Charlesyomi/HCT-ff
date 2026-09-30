@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" role="img" aria-labelledby="title desc">
+  <title id="title">Farm pond photograph placeholder</title>
+  <desc id="desc">Replace with a photograph of the catfish farm ponds.</desc>
+  <rect width="1200" height="750" fill="#dce9df"/>
+  <path d="M0 0h1200v250H0z" fill="#e6eee4"/>
+  <path d="M0 330c170-70 310 42 470-16s280-82 420-22 220 18 310-25v483H0z" fill="#648f75"/>
+  <path d="M0 440c180-62 330 35 495-8s270-62 407-7 204 20 298-20v345H0z" fill="#2d6e5a"/>
+  <path d="M0 565c175-54 328 26 502-8s280-44 411-2 190 20 287-15v210H0z" fill="#174a3b"/>
+  <path d="M85 376h1030" fill="none" stroke="#f4f7ec" stroke-opacity=".55" stroke-width="8"/>
+  <path d="M165 490h870M70 617h1060" fill="none" stroke="#d1e4cf" stroke-opacity=".48" stroke-width="5"/>
+  <text x="600" y="700" fill="#f4f7ec" font-family="sans-serif" font-size="25" text-anchor="middle">Replace with farm pond photography</text>
+</svg>

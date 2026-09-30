@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" role="img" aria-labelledby="title desc">
+  <title id="title">Catfish photograph placeholder</title>
+  <desc id="desc">Replace with a clear photograph of fresh catfish.</desc>
+  <rect width="1200" height="750" fill="#e3eee7"/>
+  <path d="M0 540c180-120 352-96 535-26 186 70 386 84 665-58v294H0z" fill="#b5d0bb"/>
+  <path d="M105 377c126-145 388-196 650-109 109 36 201 97 290 180-111 101-263 179-432 181-213 2-391-86-508-252z" fill="#395f50"/>
+  <path d="M990 448l136-127v253z" fill="#274939"/>
+  <path d="M270 330c-40-81-107-117-202-114M295 350c-71-45-132-54-201-35M276 397c-71-9-127 8-181 44" fill="none" stroke="#395f50" stroke-linecap="round" stroke-width="16"/>
+  <path d="M465 300c92 35 154 96 182 180-78 72-164 105-265 110" fill="none" stroke="#7ba185" stroke-linecap="round" stroke-width="15"/>
+  <circle cx="393" cy="371" r="16" fill="#f4f7ec"/>
+  <circle cx="397" cy="371" r="7" fill="#17372e"/>
+  <path d="M745 360c63 40 111 92 145 154" fill="none" stroke="#a7c2aa" stroke-linecap="round" stroke-width="10"/>
+  <text x="600" y="700" fill="#274939" font-family="sans-serif" font-size="25" text-anchor="middle">Replace with catfish photography</text>
+</svg>
