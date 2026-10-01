@@ -26,3 +26,11 @@
 
 - Chosen: leave `farm_maps_url` unset until the farm provides a verified pin.
 - Reason: a generic region search could direct customers to the wrong pickup location.
+
+## ADR 6: Transactional email provider**
+
+- Chosen: `Brevo` for transactional email.
+
+- Reason: it provides a free transactional email tier with up to 300 emails per day and no credit card required, making it suitable for development and early-stage use without requiring payment details upfront.
+
+- Alternative considered: `Mailgun`. Its current Free plan also does not require a credit card and provides 100 emails per day, so the decision is based on the available free-tier capacity and project requirements rather than a card requirement.
