@@ -6,7 +6,7 @@ This project uses a monorepo with a Next.js customer-facing frontend and a FastA
 
 ## Concurrency notes
 
-Order references, idempotency keys, and status transitions are intentionally protected with database-level locking and optimistic version checks so duplicate requests and admin races do not cause inconsistent order state.
+Order references, , and status transitions are intentionally protected with  optimistic version checks so duplicate requests and admin races do not cause inconsistent order state.
 
 ## Data flow
 

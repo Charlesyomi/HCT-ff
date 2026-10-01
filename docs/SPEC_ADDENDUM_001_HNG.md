@@ -1,5 +1,6 @@
 # Addendum 001 — HNG requirements (Neon/Supabase, transactional email, Google auth, Checkout)
 
+
 **Precedence:** `docs/SPEC.md` is NOT edited. Where this addendum conflicts with it, this addendum wins. Everything here is **additive**: no existing table, column, endpoint, route, or test may be removed or renamed. Existing tests must stay green after every step. Schema changes are "expand only" migrations (new tables, new nullable columns).
 
 ---
@@ -31,13 +32,14 @@ Stop and report. Do not fix anything in this step.
 - Keep the banner "You haven't been charged." No payment collection.
 - Desktop stepper labels and mobile screens are unchanged.
 
-### A2. Database on Neon (default) or Supabase
-- Use **plain Postgres via `DATABASE_URL`**. Do not add Neon or Supabase client SDKs. Switching provider must be an env change only.
+### A2. Database on Supabase (chosen) or Neon
+- Use **plain Postgres via `DATABASE_URL`**. Do not add Supabase or Neon client SDKs (no Supabase Auth, Storage or REST). Switching provider must be an env change only.
+- **Supabase specifics (verify in the dashboard):** direct connections may be IPv6-only on free projects, which many home/WSL networks cannot reach. Use the **pooler** connection strings: transaction pooler (port 6543) for `DATABASE_URL` at runtime, and the session pooler (port 5432 on the pooler host) for `DATABASE_URL_DIRECT` (Alembic). Free projects can pause after inactivity; handle the first-connect retry below. Use a separate Supabase project for the HNG deployment and for the business deployment. Never run the concurrency/destructive tests against the business project; use local Postgres (`DATABASE_URL_TEST`) or a throwaway project.
 - Two env vars: `DATABASE_URL` (pooled endpoint, runtime) and `DATABASE_URL_DIRECT` (non-pooled, used only by Alembic migrations and admin scripts).
 - SSL required (`sslmode=require`).
 - Behind a transaction pooler: disable prepared-statement caching in the driver (asyncpg `statement_cache_size=0`, or psycopg `prepare_threshold=None`); use no session-level features (session advisory locks, `LISTEN/NOTIFY`, temp tables). The `SELECT … FOR UPDATE` reference counter is transaction-scoped and is fine.
 - Small pool sizes (free tiers have low connection limits). Retry with backoff on first connect (databases may be asleep); `/ready` tolerates a cold start without flapping.
-- Run the **concurrent order creation test** against the real Neon/Supabase-branch database at least once, and record the result in `docs/DECISIONS.md`.
+- Run the **concurrent order creation test** against a real Postgres that goes through the same pooler type as production, at least once,, and record the result in `docs/DECISIONS.md`.
 
 ### A3. Transactional email (provider-agnostic; Brevo default, Mailgun supported)
 HNG's brief names Mailgun; Brevo has since been suggested as a free alternative. Do not hard-code either. The application only knows an `EmailProvider` interface, and the provider is chosen by an environment variable. Switching provider must never require a code change outside the provider's own file.
@@ -77,7 +79,7 @@ HNG's brief names Mailgun; Brevo has since been suggested as a free alternative.
 
 ### A5. Sections of SPEC.md this addendum amends
 - §1 Non-goals: "customer accounts with passwords" stays true; Google sign-in is the only account type.
-- §2 / §7: hosted Postgres = Neon (default) or Supabase; new tables `email_outbox`, `accounts`, `sessions`; new nullable FKs listed above.
+- §2 / §7: hosted Postgres = Supabase (chosen; Neon also works); new tables `email_outbox`, `accounts`, `sessions`; new nullable FKs listed above.
 - §5.2 / §5.3: checkout route (A1).
 - §5.4: third access path (A4).
 - §6: customer email rule (A3).
@@ -95,7 +97,7 @@ HNG's brief names Mailgun; Brevo has since been suggested as a free alternative.
 
 ### A7. Safe rollout order (one commit/PR per step; all tests green before the next)
 1. Step 0 audit.
-2. DB hardening (A2) + run against Neon.
+2. DB hardening (A2) + run against Supabase.
 3. Outbox + email providers (A3): console, Brevo, SMTP, then Mailgun.
 4. Accounts, sessions, Google (A4).
 5. `/checkout` route and sign-in UX (A1, A4).
