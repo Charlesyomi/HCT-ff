@@ -17,6 +17,7 @@ const tools = {
     mypy: { module: 'mypy', cwd: root },
     seed: { module: 'app.seed', cwd: path.join(root, 'apps/api') },
     migrate: { module: 'alembic', cwd: path.join(root, 'apps/api') },
+    email_worker: { module: 'app.email_worker', cwd: path.join(root, 'apps/api') },
 };
 const selected = tools[tool];
 

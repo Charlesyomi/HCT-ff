@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useCallback, useEffect, useRef, useState } from 'react';
 import { submitContactForm, type ContactFormState } from '@/app/contact/actions';
 
 const initialContactFormState: ContactFormState = {
@@ -8,12 +8,60 @@ const initialContactFormState: ContactFormState = {
     message: '',
 };
 
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+
 export function ContactForm() {
     const [state, formAction, isPending] = useActionState(submitContactForm, initialContactFormState);
+    const [honeypot, setHoneypot] = useState('');
+    const [turnstileToken, setTurnstileToken] = useState('');
+    const widgetRef = useRef<HTMLDivElement | null>(null);
+
+    const handleToken = useCallback((token: string) => setTurnstileToken(token), []);
+
+    useEffect(() => {
+        if (!turnstileSiteKey || !widgetRef.current) return;
+        const render = () => {
+            const turnstile = (window as unknown as {
+                turnstile?: { render: (element: HTMLElement, options: Record<string, unknown>) => string };
+            }).turnstile;
+            if (turnstile && widgetRef.current) {
+                turnstile.render(widgetRef.current, {
+                    sitekey: turnstileSiteKey,
+                    callback: handleToken,
+                    appearance: 'execution-only',
+                });
+            }
+        };
+        if ((window as unknown as { turnstile?: unknown }).turnstile) {
+            render();
+        } else {
+            const script = document.createElement('script');
+            script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+            script.async = true;
+            script.defer = true;
+            script.onload = render;
+            document.head.appendChild(script);
+        }
+    }, [handleToken]);
 
     return (
         <form action={formAction} className="border-y border-line-soft py-6">
             <div className="grid gap-5">
+                {/* Spam protection (SPEC §6.12): hidden honeypot plus a Turnstile token. */}
+                <div aria-hidden="true" className="absolute left-[-9999px] top-[-9999px] h-0 w-0 overflow-hidden">
+                    <label htmlFor="contact-website">Website</label>
+                    <input
+                        id="contact-website"
+                        name="website"
+                        type="text"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        value={honeypot}
+                        onChange={(event) => setHoneypot(event.target.value)}
+                    />
+                </div>
+                <input type="hidden" name="turnstile_token" value={turnstileToken} />
+                {turnstileSiteKey ? <div ref={widgetRef} aria-hidden="true" className="hidden" /> : null}
                 <label className="grid gap-2 text-sm font-semibold text-ink">
                     Name
                     <input

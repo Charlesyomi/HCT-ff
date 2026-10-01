@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { FormProvider, useForm, useFormContext, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,6 +12,7 @@ import type { Catalog, SizeClass } from '@/lib/catalog-api';
 import { createOrderFormSchema, defaultPreferredDate, deliveryAddressSchema, type OrderFormInput, type OrderFormValues } from '@/lib/order-form';
 import { useOrderDraftStore, type OrderSourceIntent } from '@/lib/order-draft-store';
 import { StatusPill } from '@/components/catalog/status-pill';
+import { SignInChoice, type SignedInAccount } from '@/components/auth/sign-in-choice';
 
 const fishOptions = [
     { value: 'clarias', label: 'Clarias', description: 'Common and widely available.' },
@@ -41,6 +43,70 @@ const orderQuestionFields: readonly (keyof OrderFormInput)[] = [
 
 const orderResponseSchema = z.object({ reference: z.string().min(1) });
 const errorResponseSchema = z.object({ error: z.object({ message: z.string() }) });
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+
+/** Cloudflare Turnstile invisible widget. Renders nothing when no site key is configured. */
+function TurnstileWidget({ onToken }: { onToken: (token: string | null) => void }) {
+    const containerRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!turnstileSiteKey || !containerRef.current) return;
+        let widgetId: string | null = null;
+        const render = () => {
+            const turnstile = (window as unknown as {
+                turnstile?: {
+                    render: (element: HTMLElement, options: Record<string, unknown>) => string;
+                    reset: (id: string) => void;
+                };
+            }).turnstile;
+            if (!turnstile || !containerRef.current) return;
+            widgetId = turnstile.render(containerRef.current, {
+                sitekey: turnstileSiteKey,
+                callback: (token: string) => onToken(token),
+                'expired-callback': () => onToken(null),
+                'error-callback': () => onToken(null),
+                appearance: 'execution-only',
+            });
+        };
+
+        if ((window as unknown as { turnstile?: unknown }).turnstile) {
+            render();
+        } else {
+            const script = document.createElement('script');
+            script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+            script.async = true;
+            script.defer = true;
+            script.onload = render;
+            document.head.appendChild(script);
+        }
+
+        return () => {
+            if (widgetId) onToken(null);
+        };
+    }, [onToken]);
+
+    if (!turnstileSiteKey) return null;
+    return <div ref={containerRef} aria-hidden="true" className="hidden" />;
+}
+
+/** Honeypot field: hidden from people, filled by naive bots (SPEC §6.12). */
+function HoneypotField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+    return (
+        <div aria-hidden="true" className="absolute left-[-9999px] top-[-9999px] h-0 w-0 overflow-hidden">
+            <label htmlFor="website-field">Website</label>
+            <input
+                id="website-field"
+                name="website"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+            />
+        </div>
+    );
+}
 
 const steps = ['Your Order', 'Review & Confirm', 'Get Quote'] as const;
 
@@ -418,6 +484,13 @@ function ReviewPanel({
     pending,
     error,
     idempotencyKey,
+    honeypotValue,
+    onHoneypotChange,
+    turnstileToken,
+    onTurnstileToken,
+    account,
+    onAccountChange,
+    checkoutRoute,
 }: {
     catalog: Catalog | null;
     onBack: () => void;
@@ -425,6 +498,13 @@ function ReviewPanel({
     pending: boolean;
     error: string | null;
     idempotencyKey: string | null;
+    honeypotValue: string;
+    onHoneypotChange: (value: string) => void;
+    turnstileToken: string | null;
+    onTurnstileToken: (token: string | null) => void;
+    account: SignedInAccount;
+    onAccountChange: (account: SignedInAccount) => void;
+    checkoutRoute: boolean;
 }) {
     const {
         register,
@@ -432,6 +512,9 @@ function ReviewPanel({
         formState: { errors },
     } = useFormContext<OrderFormInput>();
     const values = getValues();
+    // With a Turnstile site key configured the submit button waits for a fresh token, so the
+    // server always sees a single-use token; without a key (dev/tests) the check is skipped.
+    const turnstileReady = !turnstileSiteKey || Boolean(turnstileToken);
     const fishLabel = fishOptions.find((option) => option.value === values.fish_type)?.label ?? 'Not selected';
     const size = catalog?.size_classes.find((item) => item.slug === values.size);
     const selectedTime = catalog?.settings.time_slots.find((slot) => slot.key === values.time_slot)?.label ?? values.time_slot;
@@ -462,13 +545,19 @@ function ReviewPanel({
                     ))}
                 </dl>
 
+                {checkoutRoute ? (
+                    <div className="mt-6">
+                        <SignInChoice next="/checkout" account={account} onAccountChange={onAccountChange} />
+                    </div>
+                ) : null}
+
                 <section className="mt-7" aria-labelledby="details-heading">
                     <h3 id="details-heading" className="font-display text-xl font-bold text-ink">Your details</h3>
                     <p className="mt-1 text-sm text-ink-muted">The farm will use these details to confirm availability and send your quote.</p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <div className="sm:col-span-2">
                             <label htmlFor="customer-name" className="block text-sm font-semibold text-ink">Full name</label>
-                            <input id="customer-name" autoComplete="name" aria-invalid={Boolean(errors.customer_name)} aria-describedby={errors.customer_name ? 'customer-name-error' : undefined} {...register('customer_name')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="Your full name" />
+                            <input id="customer-name" autoComplete="name" readOnly={Boolean(account)} aria-invalid={Boolean(errors.customer_name)} aria-describedby={errors.customer_name ? 'customer-name-error' : undefined} {...register('customer_name')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="Your full name" />
                             <FieldError id="customer-name-error" message={errors.customer_name?.message} />
                         </div>
                         <div>
@@ -478,8 +567,8 @@ function ReviewPanel({
                             <FieldError id="customer-phone-error" message={errors.phone?.message} />
                         </div>
                         <div>
-                            <label htmlFor="customer-email" className="block text-sm font-semibold text-ink">Email <span className="font-normal text-ink-muted">(optional)</span></label>
-                            <input id="customer-email" type="email" autoComplete="email" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'customer-email-error' : undefined} {...register('email')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="you@example.com" />
+                            <label htmlFor="customer-email" className="block text-sm font-semibold text-ink">Email {account ? <span className="font-normal text-ink-muted">(from your Google account)</span> : <span className="font-normal text-ink-muted">(optional)</span>}</label>
+                            <input id="customer-email" type="email" autoComplete="email" readOnly={Boolean(account)} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'customer-email-error' : undefined} {...register('email')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="you@example.com" />
                             <FieldError id="customer-email-error" message={errors.email?.message} />
                         </div>
                     </div>
@@ -490,7 +579,9 @@ function ReviewPanel({
                 </div>
                 {error ? <p role="alert" className="mt-5 flex items-start gap-2 border border-status-error/30 bg-status-error/5 p-4 text-sm text-status-error"><CircleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={18} />{error}</p> : null}
                 <form onSubmit={onSubmit} className="mt-6">
-                    <button type="submit" disabled={pending || !idempotencyKey} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:cursor-wait disabled:opacity-60 sm:w-auto">
+                    <HoneypotField value={honeypotValue} onChange={onHoneypotChange} />
+                    <TurnstileWidget onToken={onTurnstileToken} />
+                    <button type="submit" disabled={pending || !idempotencyKey || !turnstileReady} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:cursor-wait disabled:opacity-60 sm:w-auto">
                         {pending ? <LoaderCircle aria-hidden="true" className="mr-2 animate-spin motion-reduce:animate-none" size={18} /> : null}
                         {pending ? 'Sending request…' : 'Submit Order Request'}
                     </button>
@@ -505,7 +596,7 @@ function ReviewPanel({
     );
 }
 
-function SentPanel({ catalog, reference }: { catalog: Catalog | null; reference: string }) {
+export function SentPanel({ catalog, reference }: { catalog: Catalog | null; reference: string }) {
     const phone = catalog?.settings.phone_number;
     const whatsappDigits = catalog?.settings.whatsapp_number.replace(/\D/g, '');
     const whatsappText = `Hi, I just sent order request ${reference} and would like to follow up.`;
@@ -531,14 +622,32 @@ function SentPanel({ catalog, reference }: { catalog: Catalog | null; reference:
     );
 }
 
+function hasCheckoutDraft(draft: Partial<OrderFormInput>): boolean {
+    return Boolean(
+        draft.fish_type &&
+        draft.size &&
+        draft.quantity_kg &&
+        draft.preferred_date &&
+        draft.time_slot &&
+        draft.fulfilment,
+    );
+}
+
 export function OrderFlow({
     catalog,
     initialSize,
     initialIntent,
+    mode = 'full',
 }: {
     catalog: Catalog | null;
     initialSize: string | null;
     initialIntent: string | null;
+    /**
+     * 'full' renders the whole flow on one page (SPEC §5.2 desktop);
+     * 'review' renders only Review & Confirm, used by the /checkout route (Addendum §A1),
+     * which redirects to /order when the persisted draft is empty.
+     */
+    mode?: 'full' | 'review';
 }) {
     const minOrderKg = catalog?.settings.min_order_kg ?? 40;
     const maxOrderKg = catalog?.settings.max_order_kg ?? 20_000;
@@ -581,6 +690,15 @@ export function OrderFlow({
     const [submissionError, setSubmissionError] = useState<string | null>(null);
     const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
     const [reference, setReference] = useState<string | null>(null);
+    const [honeypotValue, setHoneypotValue] = useState('');
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [account, setAccount] = useState<SignedInAccount>(null);
+    const [checkoutReady, setCheckoutReady] = useState(mode !== 'review');
+    const router = useRouter();
+    // Held in a ref so effects do not depend on the router object identity (stable in the
+    // real app router, but a new object per render in some test environments).
+    const routerRef = useRef(router);
+    routerRef.current = router;
     const hydratedPresetApplied = useRef(false);
 
     useEffect(() => {
@@ -601,19 +719,43 @@ export function OrderFlow({
             fulfilment: savedDraft.fulfilment ?? 'pickup',
         });
         setMobileStep(storedProgress.mobileStep);
+        if (mode === 'review') {
+            // /checkout shows Review & Confirm only; an empty draft means the visitor
+            // arrived directly, so send them back to the form instead of a blank summary.
+            if (!hasCheckoutDraft(savedDraft)) {
+                routerRef.current.replace('/order');
+                return;
+            }
+            setView('review');
+            const checkoutKey = storedProgress.idempotencyKey ?? crypto.randomUUID();
+            setIdempotencyKey(checkoutKey);
+            setStoredIdempotencyKey(checkoutKey);
+            setStoredReviewOpen(true);
+            setCheckoutReady(true);
+            return;
+        }
         if (storedProgress.reviewOpen) {
             setView('review');
             const restoredKey = storedProgress.idempotencyKey ?? crypto.randomUUID();
             setIdempotencyKey(restoredKey);
             setStoredIdempotencyKey(restoredKey);
         }
-    }, [form, hasHydrated, minLeadDays, setStoredIdempotencyKey]);
+    }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen]);
 
     useEffect(() => {
         if (!hasHydrated) return;
         const subscription = form.watch((values) => mergeDraft(values));
         return () => subscription.unsubscribe();
     }, [form, hasHydrated, mergeDraft]);
+
+    // Addendum §A4: a Google account pre-fills and locks name/email; phone stays required
+    // because the farm works by phone and WhatsApp. The draft is only overwritten for the
+    // two account-owned fields, so the customer's answers to the six questions are kept.
+    useEffect(() => {
+        if (!account) return;
+        form.setValue('customer_name', account.name ?? account.email.split('@')[0] ?? '');
+        form.setValue('email', account.email);
+    }, [account, form]);
 
     useEffect(() => {
         if (!hasHydrated || hydratedPresetApplied.current) return;
@@ -698,6 +840,11 @@ export function OrderFlow({
     }
 
     function returnToOrderFromReview() {
+        if (mode === 'review') {
+            // On /checkout the form lives on another route; the draft stays persisted there.
+            routerRef.current.push('/order');
+            return;
+        }
         setView('order');
         setStoredReviewOpen(false);
         setMobileStep(5);
@@ -720,7 +867,14 @@ export function OrderFlow({
                     'Content-Type': 'application/json',
                     'Idempotency-Key': requestKey,
                 },
-                body: JSON.stringify({ ...requestValues, source_intent: sourceIntent }),
+                body: JSON.stringify({
+                    ...requestValues,
+                    source_intent: sourceIntent,
+                    // Honeypot and Turnstile fields (SPEC §6.12). The honeypot stays empty for
+                    // humans; the Turnstile token is only present when the widget is configured.
+                    website: honeypotValue,
+                    turnstile_token: turnstileToken,
+                }),
             });
             const responseBody: unknown = await response.json().catch(() => null);
             if (!response.ok) {
@@ -737,6 +891,11 @@ export function OrderFlow({
             }
             setReference(parsedResponse.data.reference);
             clearDraft();
+            if (mode === 'review') {
+                // Addendum §A1: confirmation lives on its own route so a refresh cannot resubmit.
+                routerRef.current.push(`/order/sent/${encodeURIComponent(parsedResponse.data.reference)}`);
+                return;
+            }
             setView('sent');
         } catch {
             setSubmissionError('We could not reach the farm right now. Your details are saved on this device; retry or send them on WhatsApp.');
@@ -752,10 +911,10 @@ export function OrderFlow({
         ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(fallbackMessage)}`
         : '/contact';
 
-    if (!hasHydrated) {
+    if (!hasHydrated || (mode === 'review' && !checkoutReady)) {
         return (
             <div role="status" aria-live="polite" aria-busy="true" className="mt-8 min-h-40 border-y border-line-soft py-8 text-sm text-ink-muted">
-                Restoring your saved order…
+                {mode === 'review' && hasHydrated ? 'Taking you to the order form…' : 'Restoring your saved order…'}
             </div>
         );
     }
@@ -786,6 +945,13 @@ export function OrderFlow({
                             pending={pending}
                             error={submissionError}
                             idempotencyKey={idempotencyKey}
+                            honeypotValue={honeypotValue}
+                            onHoneypotChange={setHoneypotValue}
+                            turnstileToken={turnstileToken}
+                            onTurnstileToken={setTurnstileToken}
+                            account={account}
+                            onAccountChange={setAccount}
+                            checkoutRoute={mode === 'review'}
                         />
                     ) : null}
                     {view === 'sent' && reference ? <SentPanel catalog={catalog} reference={reference} /> : null}

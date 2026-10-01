@@ -24,6 +24,24 @@ vi.mock('next/image', async () => {
     };
 });
 
+// The app router is not mounted in jsdom; the stub keeps navigation a no-op for these tests.
+vi.mock('next/navigation', async () => {
+    const react = await import('react');
+    return {
+        useRouter: () => ({
+            push: vi.fn(),
+            replace: vi.fn(),
+            back: vi.fn(),
+            refresh: vi.fn(),
+            prefetch: vi.fn(),
+        }),
+        usePathname: () => '/order',
+        useSearchParams: () => new URLSearchParams(''),
+        useParams: () => ({}),
+        redirect: (href: string) => react.createElement('div', { 'data-redirect': href }),
+    };
+});
+
 const testCatalog = {
     fish_types: [
         { slug: 'clarias', name: 'Clarias', description: 'Common fish.', image_path: '/images/fish.svg', sort_order: 1 },

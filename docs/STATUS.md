@@ -53,12 +53,21 @@
 |---|---|---|---|
 | 1 | **Foundation** | **Done** | Monorepo layout, Docker Compose config, Alembic baseline, health/readiness endpoints, design tokens, typography, and base layout shells are all present and passing checks. |
 | 2 | **Catalog & public pages** | **Done** | Database models for fish/sizes/harvest/availability, seed script, `/api/v1/catalog`, `/api/v1/contact`, Home page, Our Fish, About, Contact, Privacy, Terms, and SEO metadata/JSON-LD are fully implemented. |
-| 3 | **Order flow (UI)** | **Deviates** | 6-question desktop/mobile form, Review & Confirm with "Your details", delivery address reveals, and Zustand draft store with `sessionStorage` exist, but everything renders on `/order` instead of routing to `/checkout` as required by Addendum 001 §A1. |
-| 4 | **Order API** | **Missing** | No database models or migrations exist for orders or customers; `POST /api/v1/orders` does not exist in FastAPI; reference generation, idempotency handling, Turnstile, and email notifications are completely absent. |
-| 5 | **Tracking** | **Missing** | `/my-orders` is an unwired visual stub with hardcoded empty tabs, and no order lookup or detail API endpoints (`GET /orders/{ref}`, `POST /orders/lookup`) exist. |
+| 3 | **Order flow (UI)** | **Done** | 6-question desktop/mobile form, Review & Confirm with "Your details", delivery address reveals, and Zustand draft store with `sessionStorage`; Review & Confirm is now also served by the `/checkout` route (Addendum §A1) with `/order/sent/[reference]` for confirmation. |
+| 4 | **Order API** | **Done** | Customers/orders/reference-counters/order-events tables + migration, `POST /api/v1/orders` with atomic `AF-YYYY-NNNN` references, `Idempotency-Key` replay/409-style 422 conflicts, server-side business-rule validation, IP + per-phone rate limits, honeypot + Turnstile, hashed access tokens, `GET /orders/{reference}`, `POST /orders/lookup`, `POST /orders/{reference}/cancel`, order events, and 50 backend tests (7 Postgres-only tests run when `DATABASE_URL_TEST` is set). |
+| 5 | **Tracking** | **Done** | `/my-orders` now loads real data: Active/Completed tabs, "Track an order" lookup by reference + phone (`POST /api/v1/orders/lookup`), device-token storage so returning visits refresh the order, order detail with masked phone, event history and customer cancel, plus the signed-in account list from `GET /api/v1/me/orders`; 4 new dashboard tests and 12 API tests cover the endpoints. |
 | 6 | **Admin** | **Missing** | `/admin` is a 16-line static placeholder; no admin authentication, dashboard, order management, status transitions, quote builder, payments ledger, or revalidation webhooks exist. |
 | 7 | **Hardening** | **Missing** | No Playwright e2e test suite, Lighthouse CI configurations, axe accessibility tests, Sentry tracking, rate-limiting enforcement, or production runbook content exist. |
 | 8 | **Launch prep** | **Missing** | Launch prep has not started; pages use placeholder copy (`[EDIT ME]`), placeholder SVGs, and orders cannot be placed end-to-end. |
+
+### Addendum 001 progress (applied on top of the milestones above)
+
+| Step | Scope | Status | One-Line Reason |
+|---|---|---|---|
+| A1 | Checkout route | **Done** | `/checkout` renders Review & Confirm from the persisted `sessionStorage` draft (heading "Checkout", "You haven't been charged." banner kept), redirects to `/order` when the draft is empty, and routes to `/order/sent/[reference]` after submit; 4 new component tests cover redirect, refresh, submit and banner. |
+| A3 | Transactional email | **Done** | `email_outbox` table + migration, `EmailProvider` interface with `ConsoleProvider`/`BrevoProvider`/`SmtpProvider` (stdlib)/`MailgunProvider` selected by `EMAIL_PROVIDER`, outbox rows written in the order transaction, background worker with `FOR UPDATE SKIP LOCKED` claiming, quota deferral without burning attempts, and 16 tests covering atomicity, retries and templates. |
+| A4 | Google sign-in | **Done** | `accounts` + `account_sessions` tables and nullable `customers.account_id` / `orders.account_id` columns, OIDC + PKCE endpoints (`/auth/google/start`, `/auth/google/callback`, `/auth/logout`, `/auth/me`, `/me/orders`, `/me/orders/attach`) with signed state cookie, nonce/aud/iss/exp/email_verified checks, relative-only `next`, hashed session cookie + CSRF, same-origin `/api/v1/*` rewrite, two-option sign-in UX on `/checkout`, and 23 mocked-provider tests (bad state/nonce, wrong audience, unverified email, expired token, open redirect). |
+| A2 | Database & deploy readiness | **Done** | `DATABASE_URL_DIRECT` for Alembic plus `DATABASE_URL` on the transaction pooler, automatic `prepare_threshold=None` behind port 6543, small pools, startup connect retry with backoff (toggleable via `DATABASE_WARMUP_ON_STARTUP`), plain-Postgres-only rule, and 6 configuration tests; the Supabase checklist is in `docs/RUNBOOK.md`. |
 
 ---
 

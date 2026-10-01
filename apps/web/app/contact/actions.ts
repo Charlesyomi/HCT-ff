@@ -37,7 +37,11 @@ export async function submitContactForm(
         const response = await fetch(`${apiUrl}/api/v1/contact`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(parsed.data),
+            body: JSON.stringify({
+                ...parsed.data,
+                website: formData.get('website') ?? '',
+                turnstile_token: formData.get('turnstile_token') ?? '',
+            }),
             cache: 'no-store',
         });
         if (!response.ok) {
