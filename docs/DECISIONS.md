@@ -69,3 +69,19 @@
 
 - Chosen: `DATABASE_URL` points at the transaction pooler (port 6543) for the API and the email worker, `DATABASE_URL_DIRECT` at the session/direct endpoint for Alembic; prepared statements are disabled automatically when the runtime URL is a pooler URL, pools are small (5 + 5), and the first connect retries with backoff.
 - Reason: Addendum §A2 forbids Supabase/Neon SDKs and warns that PgBouncer's transaction mode breaks prepared statements and that free projects pause; the transaction-scoped `SELECT ... FOR UPDATE` reference counter is unaffected, and migrations must not run through the pooler.
+
+## ADR 14: Admin money is integer kobo and payment state is derived
+
+- Chosen: quotes and payments store integer kobo; `total_kobo` is stored on the quote rather than recomputed, and the paid/balance figures are the sum of the append-only `payments` ledger against the accepted quote. There is no `payment_status` column and no running total on the order.
+- Reason: SPEC §9 asks for a live total and a paid/balance pair. Floats drift by a few kobo on bulk orders, which would make the customer's accepted quote disagree with the balance. Deriving the totals from immutable rows also removes a lost-update race when two cash payments are recorded at once (ADR 9 covers the same reasoning for rate-limit counters). Storing `total_kobo` on each quote version keeps a historical quote showing the terms the customer actually saw, even after prices change.
+- Alternative considered: a `payment_status` enum on `orders`, updated on each payment. Rejected because two concurrent payments could leave it disagreeing with the ledger.
+
+## ADR 15: Admin sessions are separate from customer sessions, with their own CSRF
+
+- Chosen: `/admin` uses an `adesoba_admin_session` cookie scoped to `Path=/admin`, its own `admin_sessions` table and its own CSRF token namespace (`admin-csrf:<session>`), with a 30-minute idle timeout and 12-hour absolute lifetime (SPEC §9).
+- Reason: SPEC §9 requires a separate admin security model, and sharing the customer cookie would let a customer session reach admin routes or vice versa. Scoping the cookie to `/admin` also means signing into the dashboard never disturbs a customer's `/my-orders` session in the same browser. Passwords use argon2id via `argon2-cffi` (already a dependency) rather than a bare SHA-256, because a fast hash is the wrong choice for a low-entropy secret even though it is fine for random session tokens.
+
+## ADR 16: Revalidation webhook is best-effort and never fails an admin edit
+
+- Chosen: after an availability, harvest-window or settings change the API POSTs to `${WEB_ORIGIN}/api/revalidate` with `REVALIDATE_SECRET`; a missing secret or a failed call is logged and swallowed, and the public pages keep their ≤60s timed revalidation as a backstop.
+- Reason: SPEC §8 requires on-demand revalidation, but the admin edit is already committed by the time the webhook fires. Letting a webhook failure propagate would report a failed write for a write that succeeded. The timed revalidate window bounds how stale the public catalog can be.

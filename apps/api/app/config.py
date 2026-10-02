@@ -54,5 +54,8 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = Field(default=False, alias="SESSION_COOKIE_SECURE")
     require_login_at_checkout: bool = Field(default=False, alias="REQUIRE_LOGIN_AT_CHECKOUT")
 
+    # Shared secret for the API -> Next.js on-demand revalidation webhook (SPEC §8).
+    revalidate_secret: str | None = Field(default=None, alias="REVALIDATE_SECRET")
+
 
 settings = Settings()

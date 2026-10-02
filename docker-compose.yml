@@ -1,5 +1,5 @@
-version: '3.9'
-
+# Development stack. Production adds docker-compose.prod.yml on top:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 services:
   postgres:
     image: postgres:16-alpine
@@ -21,12 +21,14 @@ services:
 
   api:
     build:
+      # The API image only needs apps/api, so it keeps the tighter build context.
       context: ./apps/api
     container_name: adesoba-api
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/adesoba
       APP_ENV: development
+      EMAIL_WORKER_ENABLED: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,16 +37,37 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      # ROOT context: this is an npm workspaces monorepo, so package-lock.json is at the
+      # root and `npm ci` inside apps/web would have no lockfile to honour.
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: adesoba-web
     restart: unless-stopped
     environment:
+      # Server-side calls. The browser talks to this origin only; next.config.mjs rewrites
+      # /api/v1/* through to the API, which keeps the session cookie same-origin.
+      API_URL: http://api:8000
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NODE_ENV: development
     depends_on:
       - api
     ports:
       - "3000:3000"
+
+  # One-shot migration job. Run explicitly, never on API boot (see apps/api/Dockerfile):
+  #   docker compose run --rm migrate
+  migrate:
+    build:
+      context: ./apps/api
+    profiles: ["tools"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/adesoba
+      # Addendum §A2: DDL goes through the direct endpoint, never the transaction pooler.
+      DATABASE_URL_DIRECT: postgresql+psycopg://postgres:postgres@postgres:5432/adesoba
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
 
 volumes:
   postgres_data:

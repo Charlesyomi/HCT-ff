@@ -67,9 +67,134 @@ Plain Postgres only: no Supabase/Neon SDK, no Supabase Auth or Storage. Switchin
 3. With the variable set, `test_orders.py` runs the concurrent-reference, concurrent-idempotency and `test_migrations.py` the upgrade/downgrade checks; without it those tests skip and only SQLite runs.
 4. After running against a real pooler endpoint, record the result in `docs/DECISIONS.md` (Addendum §A2 requires this once).
 
+## Owner checklist — Admin dashboard (SPEC §9)
+
+1. Run the migration before deploying the API: `npm run migrate`. It creates `admin_users`,
+   `admin_sessions`, `quotes`, `payments` and `audit_log` and is additive only.
+2. Create the first owner directly in the database — there is no self-service sign-up:
+
+   ```
+   cd apps/api && python -c "
+   from sqlmodel import Session
+   from app.db import engine
+   from app.models import AdminUser, AdminRole
+   from app.services.admin_service import hash_password
+   with Session(engine) as s:
+       s.add(AdminUser(email='owner@example.com', name='Owner',
+                       password_hash=hash_password('<a passphrase of 12+ characters>'),
+                       role=AdminRole.OWNER.value, must_change_password=True))
+       s.commit()"
+   ```
+
+   Generate the passphrase rather than typing it: `python -c "import secrets; print(secrets.token_urlsafe(18))"`.
+3. Sign in at `/admin` and change the password immediately — the seeded account carries
+   `must_change_password`, and any password an owner sets for a colleague does too.
+4. Set `SESSION_COOKIE_SECURE=true` once the site is served over HTTPS, otherwise the admin
+   session cookie will travel in clear text. The same variable also secures the customer
+   `/my-orders` session cookie.
+5. Set `REVALIDATE_SECRET` to a long random value **on both sides** (API env and the Next.js
+   env) to enable the on-demand revalidation webhook. Until the Next.js `/api/revalidate` route
+   exists, the public pages fall back to their 60s timed revalidation, which is acceptable.
+6. Schedule the quote-expiry job once a day (it marks quotes past `valid_until` expired and
+   closes the orders waiting on them). Run it from the `apps/api` directory:
+
+   ```
+   python -c "
+   from datetime import date
+   from sqlmodel import Session
+   from app.db import engine
+   from app.services.admin_service import expire_stale_quotes
+   with Session(engine) as s:
+       print(expire_stale_quotes(s, date.today()))"
+   ```
+
+   A cron line such as `17 6 * * * cd /srv/adesoba/apps/api && python -c "..."` is enough.
+7. Create per-person staff accounts under Users (owner-only) rather than sharing one login, so
+   the `audit_log` stays attributable. Deactivating an account deletes its sessions immediately.
+
+## Production deployment (Milestone 8)
+
+Two files drive it: `docker-compose.prod.yml` (overlay) and `infra/Caddyfile` (TLS + proxy).
+`docker-compose.yml` stays the dev stack and is untouched by the overlay.
+
+```bash
+cp .env.prod.example .env      # then fill it in — see the sections above
+
+# Validate before touching the host: aborts if any required variable is blank.
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml config
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml build
+
+# Alembic runs once, as its own job. It is deliberately NOT on API start-up: with two
+# replicas both would migrate at boot and race each other.
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml ps
+```
+
+What the overlay does:
+
+- **Only Caddy publishes ports** (80, 443, 443/udp for HTTP/3). Postgres, api and web are
+  reachable only on the internal compose network. The dev stack publishes `5432`, which on a
+  public host would be an open Postgres.
+- **TLS is automatic.** Caddy requests a Let's Encrypt certificate over ACME on first boot and
+  renews it. `DOMAIN` must already have an A/AAAA record pointing at the host, and port 80
+  must be reachable, or issuance fails.
+- **`/api/*` goes straight to the API**, skipping the Next.js rewrite hop. Same result for the
+  browser, but one less dependency on the web container being able to reach `API_URL`.
+- **Security headers** (HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  `Permissions-Policy`) are set at the proxy, where they also cover `/api/*`.
+- **`X-Forwarded-For` / `X-Real-IP`** are passed to the API, otherwise the per-IP rate limits
+  would see Caddy's address and throttle every visitor as one client.
+
+Verify after deploy:
+
+1. `curl -fsS https://$DOMAIN/health` and `/ready` → `200`
+2. `docker compose ... ps` shows api and web `healthy`, caddy `running`
+3. Place one real order; confirm the confirmation email arrives via Brevo
+4. `docker compose ... logs -f caddy` — confirm a certificate was issued
+
+If Caddy cannot issue a certificate, `docker compose ... logs caddy` shows the ACME error;
+the usual causes are DNS not yet propagated, port 80 blocked, or `DOMAIN` not matching the
+A record.
+
+## Deploying to Render (instead of a VPS)
+
+Render does not read `docker-compose.prod.yml` or `infra/Caddyfile`; it deploys one service at a
+time and terminates TLS itself. Create these resources, all from the same repository:
+
+| Resource | Type | Dockerfile | Command / notes |
+|---|---|---|---|
+| API | Web Service | `apps/api/Dockerfile` | Root Directory **blank** (repo root) is not required here; leave it blank. Health check path `/health`. |
+| Web | Web Service | `apps/web/Dockerfile` | Root Directory **must stay blank** (repo root) so `package-lock.json` is in the build context. |
+| Email worker | Background Worker | `apps/api/Dockerfile` | Start command `npm run email:worker`, plus `EMAIL_WORKER_ENABLED=false` on the API itself. |
+| Quote expiry | Cron Job | `apps/api/Dockerfile` | Runs the `expire_stale_quotes` snippet from the admin checklist above. |
+
+Both images honour `$PORT`, which Render assigns at run time, so no port needs configuring.
+
+Settings that differ from the VPS setup:
+
+- `API_URL=https://<api-service>.onrender.com` — the compose service name `api:8000` does not
+  resolve on Render.
+- `WEB_ORIGIN=https://<web-service>.onrender.com` — CORS allow-list.
+- `DATABASE_URL` = the Supabase **pooled** connection string. `DATABASE_URL_DIRECT` is optional:
+  Alembic falls back to `DATABASE_URL` when it is unset (`migrations/env.py`), which is the right
+  behaviour for a single-connection-string host.
+- Set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED` in the **Build**
+  environment, not only at run time. They are inlined into the client bundle by `next build`, so
+  setting them later has no effect.
+- Migrations: use the service's pre-deploy command, `alembic upgrade head`, rather than a start-up
+  hook. Two deploys at once must not both migrate.
+
+Why the email worker must be a separate service: the API sends queued mail from an in-process
+worker, and a free Render web service is suspended after 15 minutes of inactivity, so
+confirmation emails would wait until someone visited the site.
+
 ## Production guidance
 
 - Keep environment variables in secret storage.
-- Run daily backups of Postgres.
+- Run daily backups of Postgres, and restore-test one before launch.
 - Validate health and readiness endpoints before deployment.
 - Keep admin credentials rotated and stored outside the repo.
+- Review `audit_log` periodically; it records every admin mutation (SPEC §9).

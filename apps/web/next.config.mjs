@@ -3,6 +3,9 @@ const apiUrl = (process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http:
 
 const nextConfig = {
     reactStrictMode: true,
+    // Emit a minimal server bundle with only the runtime deps, so the container image
+    // does not need the full node_modules tree or the build toolchain (Milestone 8).
+    output: 'standalone',
     experimental: {
         typedRoutes: true,
     },

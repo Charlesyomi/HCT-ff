@@ -4,6 +4,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,11 +19,12 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.config import settings as app_config_settings
 from app.db import get_session
 from app.main import app
-from app.models import Customer, Order, OrderEvent
+from app.models import AdminRole, AdminUser, Customer, Order, OrderEvent
 from app.rate_limiter import reset_rate_limit_buckets, set_rate_limiting_enabled
 from app.schemas import OrderCreateRequest
 from app.seed import seed_catalog
 from app.services import turnstile as turnstile_module
+from app.services.admin_service import hash_password
 from app.services.order_service import (
     create_order,
 )
@@ -95,6 +97,121 @@ def rate_limited_app() -> Iterator[tuple[TestClient, Engine]]:
         engine.dispose()
         set_rate_limiting_enabled(False)
         _reset_spam_state()
+
+
+ADMIN_PASSWORD = "farm-admin-passphrase-2024"
+
+
+def seed_admin_user(
+    engine: Engine,
+    *,
+    email: str = "owner@adesoba.test",
+    role: str = AdminRole.OWNER.value,
+    is_active: bool = True,
+    password: str = ADMIN_PASSWORD,
+) -> AdminUser:
+    """Create a staff/owner account directly in the database (no seeding in the app yet).
+
+    Idempotent: calling it again for the same address returns the existing account, so a
+    fixture that also builds admin-owned data can call it without colliding.
+    """
+    with Session(engine) as session:
+        existing = session.exec(
+            select(AdminUser).where(AdminUser.email == email)
+        ).first()
+        if existing is not None:
+            return existing
+        user = AdminUser(
+            email=email,
+            name="Test Admin",
+            password_hash=hash_password(password),
+            role=role,
+            is_active=is_active,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+
+
+@dataclass(frozen=True)
+class AdminClient:
+    """A signed-in admin plus the CSRF token every mutating call must send."""
+
+    client: TestClient
+    csrf_token: str
+    admin_user: AdminUser
+    engine: Engine
+
+    def headers(self) -> dict[str, str]:
+        return {"X-CSRF-Token": self.csrf_token}
+
+
+@pytest.fixture
+def admin_client(order_app: tuple[TestClient, Engine]) -> AdminClient:
+    client, engine = order_app
+    user = seed_admin_user(engine)
+    response = client.post(
+        "/admin/auth/login",
+        json={"email": user.email, "password": ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    return AdminClient(
+        client=client,
+        csrf_token=response.json()["csrf_token"],
+        admin_user=user,
+        engine=engine,
+    )
+
+
+@pytest.fixture
+def staff_client(order_app: tuple[TestClient, Engine]) -> AdminClient:
+    """A signed-in staff account: everything an owner can do except /admin/users."""
+    client, engine = order_app
+    user = seed_admin_user(engine, email="staff@adesoba.test", role=AdminRole.STAFF.value)
+    response = client.post(
+        "/admin/auth/login",
+        json={"email": user.email, "password": ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    return AdminClient(
+        client=client,
+        csrf_token=response.json()["csrf_token"],
+        admin_user=user,
+        engine=engine,
+    )
+
+
+@pytest.fixture
+def seeded_order(order_app: tuple[TestClient, Engine]) -> dict[str, Any]:
+    """One real order placed through the public API; the admin fixture seeds only catalog."""
+    client, engine = order_app
+    payload = {
+        "fish_type": "clarias",
+        "size": "2-3kg",
+        "quantity_kg": 60,
+        "preferred_date": (date.today() + timedelta(days=3)).isoformat(),
+        "time_slot": "10-12",
+        "fulfilment": "pickup",
+        "delivery_address": "",
+        "delivery_landmark": "",
+        "notes": "",
+        "customer_name": "Admin Test Customer",
+        "phone": "08100001234",
+        "email": "admin.test.customer@example.com",
+    }
+    response = client.post(
+        "/api/v1/orders",
+        json=payload,
+        headers={"Idempotency-Key": "admin-fixture-order"},
+    )
+    assert response.status_code == 201, response.text
+    reference = response.json()["reference"]
+
+    with Session(engine) as session:
+        order = session.exec(select(Order).where(Order.reference == reference)).one()
+        order_id = str(order.id)
+    return {"id": order_id, "reference": reference, "payload": payload}
 
 
 def lagos_today() -> date:

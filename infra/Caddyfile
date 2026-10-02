@@ -1,0 +1,64 @@
+# Caddy reverse proxy for production (SPEC §12).
+#
+# Caddy obtains and renews a TLS certificate automatically over ACME, so there is no
+# cert file to manage by hand. `{$DOMAIN}` and `{$ACME_EMAIL}` come from the environment
+# (see .env.prod.example).
+#
+# Routing:
+#   /api/*  -> the FastAPI container directly
+#   /*      -> the Next.js container
+#
+# /api/* goes straight to the API rather than letting Next.js rewrite it. Both produce the
+# same result, but skipping the second hop removes a dependency on API_URL being reachable
+# from the web container for client traffic, and keeps the session cookie same-origin
+# because Caddy is the only public listener.
+{
+	email {$ACME_EMAIL}
+	# Uncomment to force a specific issuer or add DNS-provider credentials for an
+	# internal DNS setup. Plain ACME works when port 80 is reachable from the internet.
+	#
+	# acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# Baseline hardening. The app sets its own CSP-friendly headers; these cover the
+	# gaps that would otherwise allow framing, sniffing and referrer leakage.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Removed from the default header set because it advertises the proxy stack.
+		-Server
+	}
+
+	# Liveness/readiness, handy for uptime monitors that should not traverse the app.
+	handle /health {
+		reverse_proxy api:8000
+	}
+	handle /ready {
+		reverse_proxy api:8000
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# The API reads the client address for rate limiting; without this it would
+			# see the Caddy container's IP for every request and throttle all users together.
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

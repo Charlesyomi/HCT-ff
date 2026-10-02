@@ -1,0 +1,91 @@
+# Production overlay. Applied on top of docker-compose.yml:
+#
+#   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+#
+# What this overlay changes, and why:
+#   * Postgres publishes NO host port. The dev stack exposes 5432, which on a public host is
+#     simply an open Postgres. Only containers on this network can reach it.
+#   * api and web publish no host ports either; Caddy is the only public listener.
+#   * APP_ENV/SECRET_KEY/DB URLs come from the environment and are all required, so a
+#     missing value fails at `up` instead of silently booting with a default.
+services:
+  postgres:
+    # `!override` REPLACES the dev ports list instead of appending to it, which is what
+    # ordinary Compose list merging would do.
+    ports: !override []
+    restart: unless-stopped
+
+  api:
+    ports: !override []
+    environment:
+      APP_ENV: production
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      # Pooler for runtime; direct for Alembic (ADR 13).
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:?DATABASE_URL_DIRECT is required}
+      WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
+      SITE_URL: ${SITE_URL:?SITE_URL is required}
+      # Both cookies must carry Secure once TLS terminates at Caddy.
+      SESSION_COOKIE_SECURE: "true"
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:?REVALIDATE_SECRET is required}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-brevo}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:?EMAIL_FROM_ADDRESS is required}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Adesoba Farm}
+      FARM_NOTIFY_EMAIL: ${FARM_NOTIFY_EMAIL:-}
+      EMAIL_WORKER_ENABLED: "true"
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+    restart: unless-stopped
+
+  web:
+    ports: !override []
+    environment:
+      NODE_ENV: production
+      # Server-side calls go over the internal network, never the public domain.
+      API_URL: http://api:8000
+      # Browser-facing origin for /api/v1/* when called directly.
+      NEXT_PUBLIC_API_URL: ${SITE_URL:?SITE_URL is required}
+      SITE_URL: ${SITE_URL:?SITE_URL is required}
+      # These two are inlined into the client bundle AT BUILD TIME (see apps/web/Dockerfile),
+      # so they must also be present in the build environment, not just here.
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED: ${NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED:-false}
+    restart: unless-stopped
+
+  migrate:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:?DATABASE_URL_DIRECT is required}
+    restart: "no"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: adesoba-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates and ACME account
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  caddy_data:
+  caddy_config:

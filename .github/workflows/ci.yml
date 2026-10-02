@@ -17,7 +17,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          # npm workspaces: the only lockfile is at the repository root, so this is the
+          # path that exists. Pointing it at apps/web/package-lock.json silently disables
+          # the cache (there is no such file).
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

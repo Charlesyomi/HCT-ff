@@ -39,6 +39,7 @@ from app.rate_limiter import (
     limit_order_creation_ip,
     limit_order_lookup_ip,
 )
+from app.routers.admin import router as admin_router
 from app.schemas import (
     AccountMeResponse,
     AccountOrderItem,
@@ -130,6 +131,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["Content-Type", "Idempotency-Key", "X-Order-Token", "X-CSRF-Token"],
 )
+
+# Admin routes live in their own module (SPEC §8) with their own session/CSRF handling.
+app.include_router(admin_router)
 
 
 @app.exception_handler(HTTPException)

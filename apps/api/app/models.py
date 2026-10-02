@@ -400,10 +400,197 @@ class OrderEvent(SQLModel, table=True):
     actor_id: str | None = Field(default=None, max_length=80, nullable=True)
     note: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(
+default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+# --- Admin (SPEC §8, §9) ---------------------------------------------------------
+# Money is always stored as integer kobo so totals can never drift through float
+# rounding; the dashboard formats it for display only.
+
+
+class AdminRole(StrEnum):
+    OWNER = "owner"
+    STAFF = "staff"
+
+
+class AdminUser(SQLModel, table=True):
+    """Farm staff who can sign in to /admin. Seeded owner forces a password change."""
+
+    __tablename__ = "admin_users"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'staff')", name="ck_admin_users_role"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(unique=True, index=True, max_length=255)
+    name: str = Field(max_length=120)
+    password_hash: str = Field(max_length=255)
+    role: str = Field(default=AdminRole.STAFF.value, max_length=16)
+    is_active: bool = Field(default=True)
+    must_change_password: bool = Field(default=False)
+    last_login_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    # Lockout bookkeeping (SPEC §9: generic errors, lockout after repeated failures).
+    failed_attempts: int = Field(default=0)
+    locked_until: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(
         default_factory=current_timestamp,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class AdminSession(SQLModel, table=True):
+    """Server-side admin session; only SHA-256 hashes of the token/CSRF are stored."""
+
+    __tablename__ = "admin_sessions"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    admin_user_id: UUID = Field(
+        foreign_key="admin_users.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    token_hash: str = Field(unique=True, index=True, max_length=64)
+    csrf_token_hash: str = Field(max_length=64)
+    # SPEC §9: idle timeout 30 min, absolute lifetime 12 h.
+    last_seen_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    created_ip: str | None = Field(default=None, max_length=64, nullable=True)
+    user_agent: str | None = Field(default=None, max_length=400, nullable=True)
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class QuoteStatus(StrEnum):
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    SUPERSEDED = "superseded"
+    DECLINED = "declined"
+    EXPIRED = "expired"
+
+
+class Quote(SQLModel, table=True):
+    """A priced offer for an order. New quotes supersede, never overwrite."""
+
+    __tablename__ = "quotes"
+    __table_args__ = (
+        Index("ix_quotes_order_id_version_no", "order_id", "version_no"),
+        CheckConstraint(
+            "status IN ('sent', 'accepted', 'superseded', 'declined', 'expired')",
+            name="ck_quotes_status",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    order_id: UUID = Field(foreign_key="orders.id", ondelete="CASCADE", index=True)
+    version_no: int = Field(default=1)
+    unit_price_kobo: int = Field()
+    quantity_kg: int = Field()
+    delivery_fee_kobo: int = Field(default=0)
+    discount_kobo: int = Field(default=0)
+    # Stored rather than derived so a historical quote keeps the terms the customer saw.
+    total_kobo: int = Field()
+    deposit_kobo: int = Field(default=0)
+    valid_until: date
+    message_to_customer: str | None = Field(default=None, nullable=True)
+    status: str = Field(default=QuoteStatus.SENT.value, max_length=16)
+    created_by: UUID = Field(
+        foreign_key="admin_users.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    accepted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class PaymentMethod(StrEnum):
+    CASH = "cash"
+    TRANSFER = "transfer"
+    POS = "pos"
+    OTHER = "other"
+
+
+class Payment(SQLModel, table=True):
+    """
+    Append-only payment ledger. A correction is a new row (optionally negative), so the
+    paid/balance figures are always the sum of the ledger rather than a mutable column.
+    """
+
+    __tablename__ = "payments"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    order_id: UUID = Field(foreign_key="orders.id", ondelete="CASCADE", index=True)
+    amount_kobo: int = Field()
+    method: str = Field(default=PaymentMethod.CASH.value, max_length=16)
+    reference: str | None = Field(default=None, max_length=120, nullable=True)
+    note: str | None = Field(default=None, nullable=True)
+    recorded_by: UUID = Field(
+        foreign_key="admin_users.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    received_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class AuditLog(SQLModel, table=True):
+    """Every admin mutation is recorded here (SPEC §9)."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_log_entity_entity_id", "entity", "entity_id"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    actor_type: str = Field(max_length=20)
+    actor_id: str | None = Field(default=None, max_length=80, nullable=True)
+    action: str = Field(max_length=60)
+    entity: str = Field(max_length=40)
+    entity_id: str | None = Field(default=None, max_length=64, nullable=True)
+    before: JsonValue | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    after: JsonValue | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    ip: str | None = Field(default=None, max_length=64, nullable=True)
+    created_at: datetime = Field(
         default_factory=current_timestamp,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
