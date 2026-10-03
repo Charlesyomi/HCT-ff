@@ -698,3 +698,190 @@ def test_zero_and_negative_payments_are_refused(admin_client: AdminClient, seede
             headers=admin_client.headers(),
         )
         assert response.status_code == 409, amount
+
+# --- Customer-visible quote (SPEC §5.4) ---------------------------------------------
+
+
+def _id_for_reference(client: TestClient, admin: AdminClient, reference: str) -> str:
+    """Resolve an order id through the admin list endpoint (used to address admin routes)."""
+    listed = admin.client.get("/api/v1/admin/orders", params={"search": reference}).json()
+    assert listed["orders"], f"order {reference} not found in the admin list"
+    return listed["orders"][0]["id"]
+
+
+
+def _quote_body(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "unit_price_kobo": 50000,
+        "quantity_kg": 40,
+        "delivery_fee_kobo": 0,
+        "discount_kobo": 0,
+        "deposit_kobo": 500000,
+        "valid_until": (date.today() + timedelta(days=2)).isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _place_order(client: TestClient, engine: Engine, *, suffix: str) -> tuple[str, str]:
+    """Create a real order and return (reference, access_token)."""
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "fish_type": "clarias",
+            "size": "2-3kg",
+            "quantity_kg": 40,
+            "preferred_date": (date.today() + timedelta(days=4)).isoformat(),
+            "time_slot": "10-12",
+            "fulfilment": "pickup",
+            "delivery_address": "",
+            "delivery_landmark": "",
+            "notes": "",
+            "customer_name": f"Quote Tester {suffix}",
+            # Valid Nigerian mobile format; the two-digit suffix keeps each case unique.
+            "phone": f"080{suffix}0000000",
+            "email": "quote.tester@example.com",
+        },
+        headers={"Idempotency-Key": f"quote-test-{suffix}"},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    return body["reference"], body["access_token"]
+
+
+def test_customer_sees_no_quote_before_the_farm_quotes(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="01")
+
+    response = client.get(
+        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
+    )
+    assert response.status_code == 200
+    assert response.json()["quote"] is None
+
+
+def test_customer_sees_an_open_quote_with_the_correct_total(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="02")
+    order_id = _id_for_reference(client, admin_client, reference)
+
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(delivery_fee_kobo=250000),
+        headers=admin_client.headers(),
+    )
+
+    body = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}).json()
+    quote = body["quote"]
+    assert quote is not None
+    assert quote["total_kobo"] == 2_250_000
+    assert quote["deposit_kobo"] == 500000
+    assert quote["is_expired"] is False
+    # Creating a quote moves the order out of pending, so the badge matches what is shown.
+    assert body["status"] == "quoted"
+
+
+def test_creating_a_quote_writes_a_status_event(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="03")
+    order_id = _id_for_reference(client, admin_client, reference)
+
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(),
+        headers=admin_client.headers(),
+    )
+
+    events = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}).json()
+    # OrderEventPublic is the customer-facing shape and deliberately omits actor identity,
+    # so the assertion is on the transition itself.
+    assert any(event["to_status"] == "quoted" for event in events["events"])
+
+
+def test_superseded_quotes_are_never_shown_to_the_customer(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="04")
+    order_id = _id_for_reference(client, admin_client, reference)
+
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(),
+        headers=admin_client.headers(),
+    )
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(unit_price_kobo=60000),
+        headers=admin_client.headers(),
+    )
+
+    body = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}).json()
+    quote = body["quote"]
+    # Only the newest version is exposed; the earlier 50000/kg quote must not appear.
+    assert quote["version_no"] == 2
+    assert quote["unit_price_kobo"] == 60000
+
+
+def test_a_quote_past_its_validity_reads_as_expired_even_before_the_cron_runs(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="05")
+    order_id = _id_for_reference(client, admin_client, reference)
+
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(valid_until=(date.today() - timedelta(days=1)).isoformat()),
+        headers=admin_client.headers(),
+    )
+
+    quote = client.get(
+        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
+    ).json()["quote"]
+    assert quote is not None
+    assert quote["is_expired"] is True
+    assert quote["status"] == "expired"
+
+
+def test_quote_never_leaks_admin_identity(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, token = _place_order(client, engine, suffix="06")
+    order_id = _id_for_reference(client, admin_client, reference)
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(message_to_customer="Negotiated rate, valid for 48 hours."),
+        headers=admin_client.headers(),
+    )
+
+    quote = client.get(
+        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
+    ).json()["quote"]
+    assert "created_by" not in quote
+    assert quote["message_to_customer"] == "Negotiated rate, valid for 48 hours."
+
+
+def test_a_wrong_token_cannot_read_another_customers_quote(
+    admin_client: AdminClient, order_app: tuple[TestClient, Engine]
+) -> None:
+    client, engine = order_app
+    reference, _owner_token = _place_order(client, engine, suffix="07")
+    order_id = _id_for_reference(client, admin_client, reference)
+    admin_client.client.post(
+        f"/api/v1/admin/orders/{order_id}/quote",
+        json=_quote_body(),
+        headers=admin_client.headers(),
+    )
+
+    response = client.get(
+        f"/api/v1/orders/{reference}", headers={"X-Order-Token": "not-the-token"}
+    )
+    assert response.status_code == 401

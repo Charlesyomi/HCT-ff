@@ -8,6 +8,22 @@ const orderEventSchema = z.object({
     created_at: z.string(),
 });
 
+const quoteSchema = z.object({
+    version_no: z.number().int(),
+    unit_price_kobo: z.number().int(),
+    quantity_kg: z.number().int(),
+    delivery_fee_kobo: z.number().int(),
+    discount_kobo: z.number().int(),
+    total_kobo: z.number().int(),
+    deposit_kobo: z.number().int(),
+    valid_until: z.string(),
+    message_to_customer: z.string().nullable().optional(),
+    status: z.string(),
+    is_expired: z.boolean(),
+});
+
+export type OrderQuote = z.infer<typeof quoteSchema>;
+
 const orderSchema = z.object({
     reference: z.string(),
     status: z.string(),
@@ -26,6 +42,7 @@ const orderSchema = z.object({
     customer_email: z.string().nullable(),
     submitted_at: z.string(),
     events: z.array(orderEventSchema).default([]),
+    quote: quoteSchema.nullable().optional(),
 });
 
 const lookupResponseSchema = z.object({
@@ -46,6 +63,7 @@ const accountOrdersSchema = z.object({
             time_slot_label: z.string(),
             fulfilment: z.string(),
             submitted_at: z.string(),
+            quote: quoteSchema.nullable().optional(),
         }),
     ),
     csrf_token: z.string().nullable().optional(),

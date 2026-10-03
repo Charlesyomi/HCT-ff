@@ -539,17 +539,42 @@ def create_quote(
         created_by=admin_user.id,
     )
     session.add(quote)
+
+    # A quote moves the order out of `pending` so the customer-facing badge agrees with what
+    # they can now see (SPEC §5.4). Only the first quote does this; later versions leave an
+    # already-quoted order alone. Terminal orders are never revived by quoting.
+    if order.status == OrderStatus.PENDING.value:
+        previous_status = order.status
+        order.status = OrderStatus.QUOTED.value
+        order.version += 1
+        order.updated_at = now
+        session.add(order)
+        session.add(
+            OrderEvent(
+                order_id=order.id,
+                type="status_change",
+                from_status=previous_status,
+                to_status=OrderStatus.QUOTED.value,
+                actor_type="admin",
+                actor_id=str(admin_user.id),
+                note="Quote sent.",
+            )
+        )
+
     record_audit(
         session,
         admin_user=admin_user,
         action="quote.create",
         entity="order",
         entity_id=str(order.id),
+        before={"status": order.status, "version": order.version},
         after={
             "version_no": version_no,
             "total_kobo": total_kobo,
             "deposit_kobo": deposit_kobo,
             "valid_until": valid_until.isoformat(),
+            "status": order.status,
+            "version": order.version,
         },
         ip=ip,
     )

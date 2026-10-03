@@ -136,6 +136,30 @@ class OrderEventPublic(BaseModel):
     created_at: datetime
 
 
+class OrderQuotePublic(BaseModel):
+    """
+    The quote as the customer sees it (SPEC §5.4 "quote breakdown when available").
+
+    Only the newest quote for an order is ever exposed. Superseded versions stay admin-only,
+    and `created_by` is deliberately absent so an admin's identity never reaches a customer.
+    """
+
+    version_no: int
+    unit_price_kobo: int
+    quantity_kg: int
+    delivery_fee_kobo: int
+    discount_kobo: int
+    total_kobo: int
+    # Informational only: SPEC §21 has no online payment, so the UI must present this as an
+    # arrangement agreed with the farm rather than something payable on the site.
+    deposit_kobo: int
+    valid_until: date
+    message_to_customer: str | None = None
+    status: str
+    # True when the quote is past its validity, whether or not the cron job has caught up.
+    is_expired: bool
+
+
 class OrderPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -156,6 +180,7 @@ class OrderPublic(BaseModel):
     customer_email: str | None = None
     submitted_at: datetime
     events: list[OrderEventPublic] = []
+    quote: OrderQuotePublic | None = None
 
 
 class OrderLookupResponse(BaseModel):
@@ -187,6 +212,8 @@ class AccountOrderItem(BaseModel):
     time_slot_label: str
     fulfilment: str
     submitted_at: datetime
+    # Same single-quote rule as OrderPublic, so both views agree (SPEC §5.4).
+    quote: OrderQuotePublic | None = None
 
 
 class AccountOrdersResponse(BaseModel):

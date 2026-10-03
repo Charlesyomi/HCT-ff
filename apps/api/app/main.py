@@ -74,6 +74,7 @@ from app.services.email.outbox import process_pending
 from app.services.turnstile import enforce_turnstile
 from app.services.order_service import (
     cancel_order_by_customer,
+    public_quote_for,
     create_order,
     get_public_order_by_token,
     lookup_order_by_phone,
@@ -391,6 +392,7 @@ def get_order_details(
         customer_email=customer.email,
         submitted_at=order.submitted_at,
         events=[OrderEventPublic.model_validate(e) for e in events],
+        quote=public_quote_for(session, order.id),
     )
 
 
@@ -428,6 +430,7 @@ def lookup_order(
         customer_email=customer.email,
         submitted_at=order.submitted_at,
         events=[OrderEventPublic.model_validate(e) for e in events],
+        quote=public_quote_for(session, order.id),
     )
     return OrderLookupResponse(order=public_order, access_token=fresh_token)
 
@@ -608,6 +611,7 @@ def my_orders(request: Request, session: Session = Depends(get_session)) -> Acco
                 time_slot_label=order.time_slot_label,
                 fulfilment=order.fulfilment,
                 submitted_at=order.submitted_at,
+                quote=public_quote_for(session, order.id),
             )
             for order in orders
         ],

@@ -95,3 +95,25 @@
   could not call the API same-origin — which would have broken the session cookie model the Google
   sign-in design depends on (ADR 15). Scoping the cookie to the mount point keeps it off public
   pages and stops it colliding with the customer session cookie.
+
+## ADR 18: Customers see the farm's quote, not a published price list
+
+- Chosen: the customer-facing order views expose exactly one quote per order — the newest
+  non-superseded version — with `is_expired` derived from `valid_until`. A published per-kg
+  price list and customer-side quote acceptance are both rejected.
+- Reason: SPEC §21 rules out online price display ("prices depend on size, quantity and
+  market conditions"), but SPEC §5.4 already requires a "quote breakdown when available" in the
+  customer's order view. Showing the farm's own quote satisfies the spec and gives the customer
+  a number without fixing one. A price list would anchor customers before negotiation, and on a
+  bulk order (the catalog allows 20,000kg) a list-price total is large enough to be
+  commercially wrong. Acceptance stays a conversation because SPEC §21 also rules out online
+  payment, so there is nothing to pay against.
+- Consequences:
+  * only the newest version is exposed; superseded history stays admin-only, and `created_by`
+    is not part of the public shape so no admin identity is disclosed;
+  * a quote reads as expired once `valid_until` has passed even before the expiry cron runs,
+    otherwise a customer would see a live-looking quote they had already missed;
+  * creating a quote moves an order from `pending` to `quoted` so the status badge matches
+    what the customer can now see;
+  * an expired quote is still shown, greyed, with a WhatsApp "ask for a fresh quote" action,
+    because it explains the order's status and gives the customer a way forward.

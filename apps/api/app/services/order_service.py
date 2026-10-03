@@ -20,11 +20,13 @@ from app.models import (
     Order,
     OrderEvent,
     OrderStatus,
+    Quote,
+    QuoteStatus,
     ReferenceCounter,
     SiteSetting,
     SizeClass,
 )
-from app.schemas import OrderCreateRequest
+from app.schemas import OrderCreateRequest, OrderQuotePublic
 from app.services.email.outbox import enqueue_order_emails
 from app.services.notifier import get_notifier
 from app.services.turnstile import enforce_turnstile
@@ -472,6 +474,51 @@ def lookup_order_by_phone(
     session.commit()
 
     return order, customer, fresh_token
+
+
+def public_quote_for(session: Session, order_id: UUID) -> OrderQuotePublic | None:
+    """
+    The one quote a customer is allowed to see, or None when the order has not been quoted.
+
+    Rules (SPEC §5.4, owner-confirmed):
+      * only the newest version is exposed, so superseded quotes never leak;
+      * a quote counts as expired once `valid_until` has passed, even if the expiry cron
+        has not run yet, otherwise a customer would see a live-looking quote they already
+        missed;
+      * `created_by` is not part of the public shape, so no admin identity is disclosed.
+
+    Access is already gated upstream: every caller has proved ownership via the order
+    access token or a signed-in attached account.
+    """
+    quote = session.exec(
+        select(Quote)
+        .where(
+            col(Quote.order_id) == order_id,
+            col(Quote.status) != QuoteStatus.SUPERSEDED.value,
+        )
+        .order_by(col(Quote.version_no).desc())
+    ).first()
+    if quote is None:
+        return None
+
+    today = datetime.now(ZoneInfo("Africa/Lagos")).date()
+    expired = quote.valid_until < today or quote.status in (
+        QuoteStatus.EXPIRED.value,
+        QuoteStatus.DECLINED.value,
+    )
+    return OrderQuotePublic(
+        version_no=quote.version_no,
+        unit_price_kobo=quote.unit_price_kobo,
+        quantity_kg=quote.quantity_kg,
+        delivery_fee_kobo=quote.delivery_fee_kobo,
+        discount_kobo=quote.discount_kobo,
+        total_kobo=quote.total_kobo,
+        deposit_kobo=quote.deposit_kobo,
+        valid_until=quote.valid_until,
+        message_to_customer=quote.message_to_customer,
+        status=QuoteStatus.EXPIRED.value if expired else quote.status,
+        is_expired=expired,
+    )
 
 
 def cancel_order_by_customer(session: Session, reference: str, raw_token: str) -> Order:

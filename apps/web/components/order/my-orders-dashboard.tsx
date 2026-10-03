@@ -14,11 +14,43 @@ import {
     type AccountOrder,
     type TrackedOrder,
 } from '@/lib/order-tracking';
+import { QuoteSummary } from '@/components/order/quote-summary';
 
 type Tab = 'active' | 'completed';
 
 /** SPEC §5.4 My Orders: Active/Completed, track an order, order detail, cancel. */
+/**
+ * The farm's WhatsApp number, fetched from the catalog endpoint so the quote component can
+ * build a prefilled chat link. Optional because the dashboard must still render if the
+ * catalog call fails.
+ */
+function useWhatsappNumber(): string {
+    const [number, setNumber] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const response = await fetch('/api/v1/catalog', { cache: 'no-store' });
+                if (!response.ok) return;
+                const body: unknown = await response.json();
+                if (cancelled || !body || typeof body !== 'object') return;
+                const settings = (body as { settings?: { whatsapp_number?: string } }).settings;
+                if (settings?.whatsapp_number) setNumber(settings.whatsapp_number);
+            } catch {
+                // A missing number only costs the chat shortcut; the quote itself still shows.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    return number;
+}
+
 export function MyOrdersDashboard() {
+    const whatsappNumber = useWhatsappNumber();
     const [tab, setTab] = useState<Tab>('active');
     const [orders, setOrders] = useState<TrackedOrder[]>([]);
     const [accountOrders, setAccountOrders] = useState<AccountOrder[]>([]);
@@ -198,6 +230,25 @@ export function MyOrdersDashboard() {
                         <dt className="text-ink-muted">Phone</dt><dd>{selected.customer_phone_masked}</dd>
                         {selected.delivery_address ? (<><dt className="text-ink-muted">Delivery address</dt><dd>{selected.delivery_address}</dd></>) : null}
                     </dl>
+                    {/*
+                      Quote visibility (SPEC §5.4, ADR 18). The API already returns at most one
+                      quote, and never a superseded one, so this only has to decide whether to
+                      render it. Nothing is actionable here on purpose: SPEC §21 has no online
+                      payment, so the customer replies over WhatsApp instead.
+                    */}
+                    {selected.quote ? (
+                        <div className="mt-5">
+                            <QuoteSummary
+                                quote={selected.quote}
+                                reference={selected.reference}
+                                sizeLabel={selected.size_label}
+                                quantityKg={selected.quantity_kg}
+                                fulfilment={selected.fulfilment}
+                                whatsappNumber={whatsappNumber}
+                            />
+                        </div>
+                    ) : null}
+
                     <h3 className="mt-5 text-sm font-semibold text-ink">History</h3>
                     <ol className="mt-2 grid gap-2 text-sm text-ink-muted">
                         {selected.events.map((event, index) => (
