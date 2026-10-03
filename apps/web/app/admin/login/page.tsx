@@ -27,12 +27,10 @@ export default function AdminLoginPage() {
             try {
                 const result = await adminLogin(email, password);
                 if (result.must_change_password) {
-                    // The dedicated change-password screen lands in the next chunk. Until then the
-                    // dashboard shows a persistent reminder rather than silently ignoring it.
-                    sessionStorage.setItem('adesoba_admin_must_change_password', 'true');
-                } else {
-                    sessionStorage.removeItem('adesoba_admin_must_change_password');
+                    router.push('/admin/change-password');
+                    return;
                 }
+                sessionStorage.removeItem('adesoba_admin_must_change_password');
                 router.push('/admin');
                 router.refresh();
             } catch (caught) {

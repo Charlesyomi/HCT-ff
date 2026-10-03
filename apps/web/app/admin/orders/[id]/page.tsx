@@ -1,31 +1,75 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { AdminApiError, fetchAdminOrder, statusLabel, type AdminOrderDetail } from '@/lib/admin-api';
-import { formatKobo } from '@/lib/money';
-import { whatsappLink } from '@/lib/money';
+import {
+    AdminApiError,
+    adminMe,
+    createQuote,
+    fetchAdminOrder,
+    quoteTotalKobo,
+    recordPayment,
+    statusLabel,
+    transitionOrder,
+    type AdminOrderDetail,
+} from '@/lib/admin-api';
+import { formatKobo, whatsappLink } from '@/lib/money';
 
 /**
- * Order detail, read-only for now (SPEC §9).
+ * Order detail with quoting, payments and status transitions (SPEC §9).
  *
- * The quote builder, payments entry and status transitions are deliberately not here yet; the
- * API supports them and they arrive in the next chunk. What this screen exists for is to let
- * the farm read an order and reach the customer.
+ * Money is entered in Naira and sent as integer kobo, so the form never handles a float and
+ * the API recomputes the total authoritatively. After any write the order is re-read rather
+ * than patched locally, because every mutation bumps `version` and a stale local copy would
+ * make the next write fail its optimistic-lock check with a confusing 409.
  */
 export default function AdminOrderDetailPage() {
     const params = useParams<{ id: string }>();
     const router = useRouter();
+
     const [order, setOrder] = useState<AdminOrderDetail | null>(null);
+    const [csrfToken, setCsrfToken] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [pending, setPending] = useState(false);
+
+    // Quote form, in Naira for the person filling it in.
+    const [unitPrice, setUnitPrice] = useState('');
+    const [deliveryFee, setDeliveryFee] = useState('');
+    const [discount, setDiscount] = useState('');
+    const [deposit, setDeposit] = useState('');
+    const [validUntil, setValidUntil] = useState('');
+    const [messageToCustomer, setMessageToCustomer] = useState('');
+
+    // Payment form.
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'pos' | 'other'>('cash');
+
+    const refresh = useCallback(async () => {
+        const [detail, me] = await Promise.all([fetchAdminOrder(params.id), adminMe()]);
+        setOrder(detail);
+        setCsrfToken(me.csrf_token);
+        // Default the deposit to the amount still outstanding.
+        if (detail.due_kobo > detail.paid_kobo) {
+            setPaymentAmount(String((detail.due_kobo - detail.paid_kobo) / 100));
+        } else {
+            setPaymentAmount('');
+        }
+    }, [params.id]);
 
     useEffect(() => {
         let cancelled = false;
         void (async () => {
             try {
                 const detail = await fetchAdminOrder(params.id);
-                if (!cancelled) setOrder(detail);
+                if (cancelled) return;
+                setOrder(detail);
+                if (detail.due_kobo > detail.paid_kobo) {
+                    setPaymentAmount(String((detail.due_kobo - detail.paid_kobo) / 100));
+                }
+                const me = await adminMe();
+                if (!cancelled) setCsrfToken(me.csrf_token);
             } catch (caught) {
                 if (cancelled) return;
                 if (caught instanceof AdminApiError && caught.status === 401) {
@@ -40,7 +84,23 @@ export default function AdminOrderDetailPage() {
         };
     }, [params.id, router]);
 
-    if (error) {
+    async function run(action: () => Promise<unknown>, success: string) {
+        if (!csrfToken) return;
+        setPending(true);
+        setError(null);
+        setNotice(null);
+        try {
+            await action();
+            await refresh();
+            setNotice(success);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'That change did not save.');
+        } finally {
+            setPending(false);
+        }
+    }
+
+    if (error && !order) {
         return (
             <main className="mx-auto max-w-3xl px-4 py-8">
                 <p role="alert" className="text-sm font-semibold text-[color:var(--brand-700)]">{error}</p>
@@ -57,8 +117,16 @@ export default function AdminOrderDetailPage() {
         );
     }
 
+    const toKobo = (value: string) => Math.max(0, Math.round(Number(value || '0') * 100));
+    const draft = {
+        unit_price_kobo: toKobo(unitPrice),
+        quantity_kg: order.quantity_kg,
+        delivery_fee_kobo: toKobo(deliveryFee),
+        discount_kobo: toKobo(discount),
+    };
+    const previewTotal = quoteTotalKobo(draft);
+
     const message = `Hi ${order.customer_name}, about your Adesoba order ${order.reference}: ${order.quantity_kg}kg ${order.size_label}, ${order.fulfilment === 'delivery' ? 'delivery' : 'pickup'}, preferred ${order.preferred_date}.`;
-    const latestQuote = order.quotes[0] ?? null;
 
     return (
         <main className="mx-auto max-w-3xl px-4 py-8 md:px-8">
@@ -86,15 +154,8 @@ export default function AdminOrderDetailPage() {
                 </a>
             </div>
 
-            <section aria-labelledby="customer-heading" className="mt-6">
-                <h2 id="customer-heading" className="font-display text-lg font-bold text-ink">Customer</h2>
-                <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-[160px_1fr]">
-                    <dt className="text-ink-muted">Name</dt><dd>{order.customer_name}</dd>
-                    <dt className="text-ink-muted">Phone</dt><dd>{order.customer_phone}</dd>
-                    {order.customer_email ? (<><dt className="text-ink-muted">Email</dt><dd>{order.customer_email}</dd></>) : null}
-                    {order.customer_notes ? (<><dt className="text-ink-muted">Notes</dt><dd>{order.customer_notes}</dd></>) : null}
-                </dl>
-            </section>
+            {notice ? <p role="status" className="mt-4 rounded-lg border border-line-soft p-3 text-sm text-ink">{notice}</p> : null}
+            {error ? <p role="alert" className="mt-4 text-sm font-semibold text-[color:var(--brand-700)]">{error}</p> : null}
 
             <section aria-labelledby="order-heading" className="mt-6">
                 <h2 id="order-heading" className="font-display text-lg font-bold text-ink">Order</h2>
@@ -104,49 +165,131 @@ export default function AdminOrderDetailPage() {
                     <dt className="text-ink-muted">Preferred date</dt><dd>{order.preferred_date}</dd>
                     <dt className="text-ink-muted">Time slot</dt><dd>{order.time_slot_label}</dd>
                     <dt className="text-ink-muted">Fulfilment</dt><dd>{order.fulfilment === 'delivery' ? 'Delivery' : 'Pickup'}</dd>
+                    <dt className="text-ink-muted">Phone</dt><dd>{order.customer_phone}</dd>
+                    {order.customer_email ? (<><dt className="text-ink-muted">Email</dt><dd>{order.customer_email}</dd></>) : null}
                     {order.delivery_address ? (<><dt className="text-ink-muted">Delivery address</dt><dd>{order.delivery_address}</dd></>) : null}
                     {order.notes ? (<><dt className="text-ink-muted">Customer note</dt><dd>{order.notes}</dd></>) : null}
                 </dl>
             </section>
 
             {/*
-              Read-only in this chunk. The status machine lists only the transitions the API
-              says are legal, so the buttons for them arrive with the next chunk.
+              Only transitions the API reports as legal are offered, so the status machine
+              cannot be bypassed from the UI. Each sends the version it read; a concurrent
+              change by someone else comes back as a 409 and re-reads.
             */}
-            <section aria-labelledby="next-heading" className="mt-6">
-                <h2 id="next-heading" className="font-display text-lg font-bold text-ink">Next steps</h2>
-                <p className="mt-2 text-sm text-ink-muted">
-                    {order.allowed_next_statuses.length > 0
-                        ? `Available: ${order.allowed_next_statuses.map(statusLabel).join(', ')}.`
-                        : 'This order is closed; no further transitions are possible.'}
-                </p>
-            </section>
-
-            <section aria-labelledby="quote-heading" className="mt-6">
-                <h2 id="quote-heading" className="font-display text-lg font-bold text-ink">Quoting</h2>
-                {latestQuote ? (
-                    <>
-                        <p className="mt-2 text-sm">
-                            Quote v{latestQuote.version_no}: {formatKobo(latestQuote.total_kobo)} · {statusLabel(latestQuote.status)}
-                        </p>
-                        <p className="text-sm text-ink-muted">Valid until {latestQuote.valid_until}</p>
-                    </>
+            <section aria-labelledby="transition-heading" className="mt-6">
+                <h2 id="transition-heading" className="font-display text-lg font-bold text-ink">Move this order on</h2>
+                {order.allowed_next_statuses.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink-muted">This order is closed; no further transitions are possible.</p>
                 ) : (
-                    <p className="mt-2 text-sm text-ink-muted">Not quoted yet.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {order.allowed_next_statuses.map((next) => (
+                            <button
+                                key={next}
+                                type="button"
+                                disabled={pending}
+                                onClick={() => void run(() => transitionOrder(order.id, next, order.version, csrfToken ?? ''), `Order moved to ${statusLabel(next)}.`)}
+                                className="inline-flex min-h-11 items-center rounded-full border border-line-strong px-5 text-sm font-semibold text-ink disabled:opacity-60"
+                            >
+                                {statusLabel(next)}
+                            </button>
+                        ))}
+                    </div>
                 )}
-                <p className="mt-3 text-sm text-ink-muted">
-                    Creating and sending quotes arrives in the next chunk; use the API or WhatsApp for now.
-                </p>
             </section>
 
-            {order.due_kobo > 0 ? (
-                <section aria-labelledby="payment-heading" className="mt-6">
-                    <h2 id="payment-heading" className="font-display text-lg font-bold text-ink">Payments</h2>
-                    <p className="mt-2 text-sm">
-                        Paid {formatKobo(order.paid_kobo)} of {formatKobo(order.due_kobo)} · balance {formatKobo(order.balance_kobo)}
+            <section aria-labelledby="quote-heading" className="mt-6 rounded-lg border border-line-soft p-4">
+                <h2 id="quote-heading" className="font-display text-lg font-bold text-ink">
+                    {order.quotes.length > 0 ? 'Send a new quote' : 'Quote this order'}
+                </h2>
+                {order.quotes.length > 0 ? (
+                    <p className="mt-1 text-sm text-ink-muted">
+                        Latest: v{order.quotes[0].version_no} · {formatKobo(order.quotes[0].total_kobo)} ·{' '}
+                        {statusLabel(order.quotes[0].status)}. Sending again supersedes it.
                     </p>
-                </section>
-            ) : null}
+                ) : null}
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label htmlFor="unit-price" className="text-sm font-semibold text-ink">Price per kg (₦)</label>
+                        <input id="unit-price" type="number" min="0" step="0.01" inputMode="decimal" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                    <div>
+                        <label htmlFor="quantity" className="text-sm font-semibold text-ink">Quantity (kg)</label>
+                        <input id="quantity" type="number" value={order.quantity_kg} readOnly className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink opacity-70" />
+                    </div>
+                    <div>
+                        <label htmlFor="delivery-fee" className="text-sm font-semibold text-ink">Delivery fee (₦)</label>
+                        <input id="delivery-fee" type="number" min="0" step="0.01" inputMode="decimal" value={deliveryFee} onChange={(e) => setDeliveryFee(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                    <div>
+                        <label htmlFor="discount" className="text-sm font-semibold text-ink">Discount (₦)</label>
+                        <input id="discount" type="number" min="0" step="0.01" inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                    <div>
+                        <label htmlFor="deposit" className="text-sm font-semibold text-ink">Deposit (₦)</label>
+                        <input id="deposit" type="number" min="0" step="0.01" inputMode="decimal" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                    <div>
+                        <label htmlFor="valid-until" className="text-sm font-semibold text-ink">Valid until</label>
+                        <input id="valid-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                </div>
+
+                <div className="mt-3">
+                    <label htmlFor="quote-message" className="text-sm font-semibold text-ink">Message to the customer (optional)</label>
+                    <textarea id="quote-message" rows={2} value={messageToCustomer} onChange={(e) => setMessageToCustomer(e.target.value)} className="mt-1 w-full rounded-lg border border-line-strong bg-canvas px-3 py-2 text-ink" />
+                </div>
+
+                <p className="mt-3 text-sm">
+                    <span className="text-ink-muted">Live total: </span>
+                    <output className="font-semibold text-ink">{previewTotal > 0 ? formatKobo(previewTotal) : '—'}</output>
+                </p>
+
+                <button
+                    type="button"
+                    disabled={pending || unitPrice === '' || validUntil === ''}
+                    onClick={() =>
+                        void run(
+                            () => createQuote(order.id, { ...draft, deposit_kobo: toKobo(deposit), valid_until: validUntil, message_to_customer: messageToCustomer || undefined }, csrfToken ?? ''),
+                            'Quote sent.',
+                        )
+                    }
+                    className="mt-3 min-h-11 rounded-full bg-[color:var(--brand-700)] px-5 font-semibold text-white disabled:opacity-60"
+                >
+                    {pending ? 'Sending…' : 'Send quote'}
+                </button>
+            </section>
+
+            <section aria-labelledby="payment-heading" className="mt-6 rounded-lg border border-line-soft p-4">
+                <h2 id="payment-heading" className="font-display text-lg font-bold text-ink">Record a payment</h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                    Due {formatKobo(order.due_kobo)} · paid {formatKobo(order.paid_kobo)} · balance {formatKobo(order.balance_kobo)}
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label htmlFor="payment-amount" className="text-sm font-semibold text-ink">Amount (₦)</label>
+                        <input id="payment-amount" type="number" min="0" step="0.01" inputMode="decimal" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink" />
+                    </div>
+                    <div>
+                        <label htmlFor="payment-method" className="text-sm font-semibold text-ink">Method</label>
+                        <select id="payment-method" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'cash')} className="mt-1 min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink">
+                            <option value="cash">Cash</option>
+                            <option value="transfer">Transfer</option>
+                            <option value="pos">POS</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    disabled={pending || paymentAmount === ''}
+                    onClick={() => void run(() => recordPayment(order.id, { amount_kobo: toKobo(paymentAmount), method: paymentMethod }, csrfToken ?? ''), 'Payment recorded.')}
+                    className="mt-3 min-h-11 rounded-full bg-[color:var(--brand-700)] px-5 font-semibold text-white disabled:opacity-60"
+                >
+                    {pending ? 'Saving…' : 'Record payment'}
+                </button>
+            </section>
 
             {order.internal_notes ? (
                 <section aria-labelledby="internal-heading" className="mt-6">

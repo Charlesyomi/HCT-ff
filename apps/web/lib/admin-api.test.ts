@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AdminApiError, adminFetch, statusLabel } from './admin-api';
+import {
+    AdminApiError,
+    adminFetch,
+    createQuote,
+    quoteTotalKobo,
+    recordPayment,
+    statusLabel,
+    transitionOrder,
+} from './admin-api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -67,5 +75,63 @@ describe('statusLabel', () => {
 describe('AdminApiError', () => {
     it('carries the status code', () => {
         expect(new AdminApiError('nope', 403).status).toBe(403);
+    });
+});
+
+describe('quoteTotalKobo', () => {
+    it('computes the preview total in integer kobo', () => {
+        // 500 naira/kg x 40kg + 2500 delivery = 22500 naira = 2_250_000 kobo
+        expect(
+            quoteTotalKobo({ unit_price_kobo: 50_000, quantity_kg: 40, delivery_fee_kobo: 250_000, discount_kobo: 0 }),
+        ).toBe(2_250_000);
+    });
+
+    it('subtracts a discount', () => {
+        expect(
+            quoteTotalKobo({ unit_price_kobo: 33_333, quantity_kg: 7, delivery_fee_kobo: 0, discount_kobo: 1_166 }),
+        ).toBe(33_333 * 7 - 1_166);
+    });
+});
+
+describe('mutations send the CSRF token and the current version', () => {
+    it('transitionOrder posts to_status with the version that was read', async () => {
+        const stub = stubFetch({ json: async () => ({ id: 'o1' }) });
+        await transitionOrder('o1', 'quoted', 4, 'csrf-abc');
+        const [path, init] = stub.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+        expect(path).toBe('/api/v1/admin/orders/o1/transition');
+        expect(init.method).toBe('POST');
+        expect(init.headers['X-CSRF-Token']).toBe('csrf-abc');
+        expect(JSON.parse(init.body as string)).toEqual({ to_status: 'quoted', version: 4 });
+    });
+
+    it('createQuote posts the quote draft as kobo', async () => {
+        const stub = stubFetch({ json: async () => ({ quote: {} }) });
+        await createQuote(
+            'o1',
+            {
+                unit_price_kobo: 50_000,
+                quantity_kg: 40,
+                delivery_fee_kobo: 250_000,
+                discount_kobo: 0,
+                deposit_kobo: 500_000,
+                valid_until: '2099-01-01',
+            },
+            'csrf-abc',
+        );
+        const init = stub.mock.calls[0][1] as RequestInit & { headers: Record<string, string> };
+        expect(init.headers['X-CSRF-Token']).toBe('csrf-abc');
+        expect(JSON.parse(init.body as string).deposit_kobo).toBe(500_000);
+    });
+
+    it('recordPayment sends the amount in kobo', async () => {
+        const stub = stubFetch({ json: async () => ({ payment: {} }) });
+        await recordPayment('o1', { amount_kobo: 1_000_000, method: 'transfer' }, 'csrf-abc');
+        const init = stub.mock.calls[0][1] as RequestInit;
+        expect(JSON.parse(init.body as string)).toEqual({ amount_kobo: 1_000_000, method: 'transfer' });
+    });
+
+    it('a stale version surfaces the API conflict message', async () => {
+        stubFetch({ ok: false, status: 409, json: async () => ({ detail: 'This order was updated by someone else. Reload it and try again.' }) });
+        await expect(transitionOrder('o1', 'confirmed', 1, 'csrf-abc')).rejects.toThrow(/updated by someone else/);
     });
 });
