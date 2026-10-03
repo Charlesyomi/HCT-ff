@@ -30,7 +30,7 @@ from tests.conftest import ADMIN_PASSWORD, AdminClient, seed_admin_user
 
 def _first_order(client: TestClient, seeded_order: dict[str, Any]) -> dict[str, Any]:
     """Read the fixture order back through the admin list endpoint."""
-    listed = client.get("/admin/orders", params={"search": seeded_order["reference"]}).json()
+    listed = client.get("/api/v1/admin/orders", params={"search": seeded_order["reference"]}).json()
     assert listed["orders"], "expected the seeded order"
     return listed["orders"][0]
 
@@ -40,7 +40,7 @@ def _first_order(client: TestClient, seeded_order: dict[str, Any]) -> dict[str, 
 
 def test_admin_routes_require_a_session(order_app: tuple[TestClient, Engine]) -> None:
     client, _engine = order_app
-    for path in ("/admin/dashboard", "/admin/orders", "/admin/customers", "/admin/users"):
+    for path in ("/api/v1/admin/dashboard", "/api/v1/admin/orders", "/api/v1/admin/customers", "/api/v1/admin/users"):
         assert client.get(path).status_code == 401, path
 
 
@@ -50,7 +50,7 @@ def test_login_with_correct_credentials_sets_an_http_only_cookie(
     client, engine = order_app
     seed_admin_user(engine)
     response = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": "owner@adesoba.test", "password": ADMIN_PASSWORD},
     )
     assert response.status_code == 200
@@ -62,7 +62,7 @@ def test_login_with_correct_credentials_sets_an_http_only_cookie(
     assert "adesoba_admin_session" in cookie_header
     assert "HttpOnly" in cookie_header
     # Scoped to /admin so the customer session cookie is never clobbered.
-    assert "Path=/admin" in cookie_header
+    assert "Path=/api/v1/admin" in cookie_header
 
 
 def test_wrong_password_and_unknown_account_give_the_same_generic_error(
@@ -71,11 +71,11 @@ def test_wrong_password_and_unknown_account_give_the_same_generic_error(
     client, engine = order_app
     seed_admin_user(engine)
     wrong_password = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": "owner@adesoba.test", "password": "not-the-password"},
     )
     unknown_email = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": "nobody@adesoba.test", "password": ADMIN_PASSWORD},
     )
     assert wrong_password.status_code == unknown_email.status_code == 401
@@ -88,12 +88,12 @@ def test_repeated_failures_lock_the_account(order_app: tuple[TestClient, Engine]
     seed_admin_user(engine)
     for _ in range(admin_service.ADMIN_MAX_FAILED_ATTEMPTS):
         client.post(
-            "/admin/auth/login",
+            "/api/v1/admin/auth/login",
             json={"email": "owner@adesoba.test", "password": "wrong-password-here"},
         )
 
     locked_out = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": "owner@adesoba.test", "password": ADMIN_PASSWORD},
     )
     assert locked_out.status_code == 401
@@ -108,9 +108,9 @@ def test_repeated_failures_lock_the_account(order_app: tuple[TestClient, Engine]
 
 
 def test_logout_clears_the_session(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
-    assert admin_client.client.get("/admin/dashboard").status_code == 200
-    assert admin_client.client.post("/admin/auth/logout").status_code == 200
-    assert admin_client.client.get("/admin/dashboard").status_code == 401
+    assert admin_client.client.get("/api/v1/admin/dashboard").status_code == 200
+    assert admin_client.client.post("/api/v1/admin/auth/logout").status_code == 200
+    assert admin_client.client.get("/api/v1/admin/dashboard").status_code == 401
 
 
 def test_change_password_requires_the_current_one_and_enforces_minimum_length(
@@ -118,38 +118,38 @@ def test_change_password_requires_the_current_one_and_enforces_minimum_length(
 ) -> None:
     client = admin_client.client
     wrong_current = client.post(
-        "/admin/auth/change-password",
+        "/api/v1/admin/auth/change-password",
         json={"current_password": "not-it", "new_password": "a-brand-new-passphrase"},
         headers=admin_client.headers(),
     )
     assert wrong_current.status_code == 400
 
     too_short = client.post(
-        "/admin/auth/change-password",
+        "/api/v1/admin/auth/change-password",
         json={"current_password": ADMIN_PASSWORD, "new_password": "short"},
         headers=admin_client.headers(),
     )
     assert too_short.status_code == 422
 
     changed = client.post(
-        "/admin/auth/change-password",
+        "/api/v1/admin/auth/change-password",
         json={"current_password": ADMIN_PASSWORD, "new_password": "a-brand-new-passphrase"},
         headers=admin_client.headers(),
     )
     assert changed.status_code == 200
 
     # The old password must stop working and the new one must work.
-    client.post("/admin/auth/logout")
+    client.post("/api/v1/admin/auth/logout")
     assert (
         client.post(
-            "/admin/auth/login",
+            "/api/v1/admin/auth/login",
             json={"email": admin_client.admin_user.email, "password": ADMIN_PASSWORD},
         ).status_code
         == 401
     )
     assert (
         client.post(
-            "/admin/auth/login",
+            "/api/v1/admin/auth/login",
             json={"email": admin_client.admin_user.email, "password": "a-brand-new-passphrase"},
         ).status_code
         == 200
@@ -164,14 +164,14 @@ def test_mutating_routes_reject_a_request_without_a_valid_csrf_token(
 ) -> None:
     client = admin_client.client
     no_header = client.patch(
-        "/admin/settings/farm_address",
+        "/api/v1/admin/settings/farm_address",
         json={"value": "Somewhere"},
         headers={"X-CSRF-Token": "not-the-token"},
     )
     assert no_header.status_code == 403
 
     wrong_token = client.patch(
-        "/admin/settings/farm_address",
+        "/api/v1/admin/settings/farm_address",
         json={"value": "Somewhere"},
         headers={"X-CSRF-Token": admin_client.csrf_token + "x"},
     )
@@ -179,10 +179,10 @@ def test_mutating_routes_reject_a_request_without_a_valid_csrf_token(
 
 
 def test_staff_is_forbidden_from_managing_users(staff_client: AdminClient) -> None:
-    assert staff_client.client.get("/admin/users").status_code == 403
+    assert staff_client.client.get("/api/v1/admin/users").status_code == 403
     assert (
         staff_client.client.post(
-            "/admin/users",
+            "/api/v1/admin/users",
             json={
                 "email": "sneaky.staff@adesoba.test",
                 "name": "Sneaky Staff",
@@ -198,7 +198,7 @@ def test_staff_is_forbidden_from_managing_users(staff_client: AdminClient) -> No
 def test_owner_can_manage_users(admin_client: AdminClient) -> None:
     """Owner-only: a new account is created with a forced password change."""
     created = admin_client.client.post(
-        "/admin/users",
+        "/api/v1/admin/users",
         json={
             "email": "new.staff@adesoba.test",
             "name": "New Staff",
@@ -209,12 +209,12 @@ def test_owner_can_manage_users(admin_client: AdminClient) -> None:
     )
     assert created.status_code == 201
     assert created.json()["must_change_password"] is True
-    assert admin_client.client.get("/admin/users").status_code == 200
+    assert admin_client.client.get("/api/v1/admin/users").status_code == 200
 
 
 def test_owner_cannot_demote_or_disable_own_account(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
     response = admin_client.client.patch(
-        f"/admin/users/{admin_client.admin_user.id}",
+        f"/api/v1/admin/users/{admin_client.admin_user.id}",
         json={"is_active": False},
         headers=admin_client.headers(),
     )
@@ -229,7 +229,7 @@ def test_transition_moves_the_order_and_writes_an_order_event(
 ) -> None:
     order = _first_order(admin_client.client, seeded_order)
     response = admin_client.client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.QUOTED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -244,7 +244,7 @@ def test_illegal_transition_is_refused_with_409(admin_client: AdminClient, seede
     """A pending order cannot jump straight to completed."""
     order = _first_order(admin_client.client, seeded_order)
     response = admin_client.client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.COMPLETED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -255,7 +255,7 @@ def test_terminal_order_cannot_be_revived(admin_client: AdminClient, seeded_orde
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     cancelled = client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.CANCELLED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -263,7 +263,7 @@ def test_terminal_order_cannot_be_revived(admin_client: AdminClient, seeded_orde
     assert cancelled.json()["allowed_next_statuses"] == []
 
     revived = client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={
             "to_status": OrderStatus.CONFIRMED.value,
             "version": cancelled.json()["version"],
@@ -277,7 +277,7 @@ def test_stale_version_is_rejected_with_409(admin_client: AdminClient, seeded_or
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     first = client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.QUOTED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -285,7 +285,7 @@ def test_stale_version_is_rejected_with_409(admin_client: AdminClient, seeded_or
 
     # Same (now stale) version a second time: the optimistic lock must refuse it.
     second = client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.CONFIRMED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -297,7 +297,7 @@ def test_updating_notes_requires_the_current_version(admin_client: AdminClient, 
     client = admin_client.client
     assert (
         client.patch(
-            f"/admin/orders/{order['id']}",
+            f"/api/v1/admin/orders/{order['id']}",
             json={
                 "internal_notes": "Customer prefers evening pickup.",
                 "version": order["version"],
@@ -307,7 +307,7 @@ def test_updating_notes_requires_the_current_version(admin_client: AdminClient, 
         == 200
     )
     stale = client.patch(
-        f"/admin/orders/{order['id']}",
+        f"/api/v1/admin/orders/{order['id']}",
         json={"internal_notes": "Second writer", "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -344,13 +344,13 @@ def test_creating_a_quote_supersedes_the_previous_open_one(
     payload = _quote_payload(delivery_fee_kobo=250000, deposit_kobo=500000)
 
     first = client.post(
-        f"/admin/orders/{order['id']}/quote", json=payload, headers=admin_client.headers()
+        f"/api/v1/admin/orders/{order['id']}/quote", json=payload, headers=admin_client.headers()
     )
     assert first.status_code == 200
     assert first.json()["quote"]["total_kobo"] == 2_250_000
 
     second = client.post(
-        f"/admin/orders/{order['id']}/quote", json=payload, headers=admin_client.headers()
+        f"/api/v1/admin/orders/{order['id']}/quote", json=payload, headers=admin_client.headers()
     )
     assert second.status_code == 200
     assert second.json()["quote"]["version_no"] == 2
@@ -366,23 +366,23 @@ def test_accepting_a_quote_confirms_the_order_and_sets_the_due_amount(
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     quote = client.post(
-        f"/admin/orders/{order['id']}/quote",
+        f"/api/v1/admin/orders/{order['id']}/quote",
         json=_quote_payload(),
         headers=admin_client.headers(),
     ).json()["quote"]
 
     accepted = client.post(
-        f"/admin/orders/{order['id']}/quote/accept",
+        f"/api/v1/admin/orders/{order['id']}/quote/accept",
         json={"quote_id": quote["id"]},
         headers=admin_client.headers(),
     )
     assert accepted.status_code == 200
     assert accepted.json()["due_kobo"] == 2_000_000
-    assert client.get(f"/admin/orders/{order['id']}").json()["status"] == OrderStatus.CONFIRMED.value
+    assert client.get(f"/api/v1/admin/orders/{order['id']}").json()["status"] == OrderStatus.CONFIRMED.value
 
     # Accepting twice is refused: the quote is no longer open.
     again = client.post(
-        f"/admin/orders/{order['id']}/quote/accept",
+        f"/api/v1/admin/orders/{order['id']}/quote/accept",
         json={"quote_id": quote["id"]},
         headers=admin_client.headers(),
     )
@@ -394,7 +394,7 @@ def test_quote_with_a_discount_larger_than_the_total_is_refused(
 ) -> None:
     order = _first_order(admin_client.client, seeded_order)
     response = admin_client.client.post(
-        f"/admin/orders/{order['id']}/quote",
+        f"/api/v1/admin/orders/{order['id']}/quote",
         json=_quote_payload(unit_price_kobo=1000, discount_kobo=999999999),
         headers=admin_client.headers(),
     )
@@ -408,18 +408,18 @@ def test_payments_accumulate_into_paid_and_balance(admin_client: AdminClient, se
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     quote = client.post(
-        f"/admin/orders/{order['id']}/quote",
+        f"/api/v1/admin/orders/{order['id']}/quote",
         json=_quote_payload(),
         headers=admin_client.headers(),
     ).json()["quote"]
     client.post(
-        f"/admin/orders/{order['id']}/quote/accept",
+        f"/api/v1/admin/orders/{order['id']}/quote/accept",
         json={"quote_id": quote["id"]},
         headers=admin_client.headers(),
     )
 
     deposit = client.post(
-        f"/admin/orders/{order['id']}/payments",
+        f"/api/v1/admin/orders/{order['id']}/payments",
         json={"amount_kobo": 1_000_000, "method": "transfer"},
         headers=admin_client.headers(),
     )
@@ -428,7 +428,7 @@ def test_payments_accumulate_into_paid_and_balance(admin_client: AdminClient, se
     assert deposit.json()["balance_kobo"] == 1_000_000
 
     remainder = client.post(
-        f"/admin/orders/{order['id']}/payments",
+        f"/api/v1/admin/orders/{order['id']}/payments",
         json={"amount_kobo": 1_000_000, "method": "cash"},
         headers=admin_client.headers(),
     )
@@ -441,34 +441,34 @@ def test_payments_accumulate_into_paid_and_balance(admin_client: AdminClient, se
 
 def test_orders_can_be_filtered_by_status_and_searched(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
     client = admin_client.client
-    everything = client.get("/admin/orders").json()
+    everything = client.get("/api/v1/admin/orders").json()
     assert everything["total"] >= 1
 
-    pending = client.get("/admin/orders", params={"status": "pending"}).json()
+    pending = client.get("/api/v1/admin/orders", params={"status": "pending"}).json()
     assert all(order["status"] == "pending" for order in pending["orders"])
 
     reference = everything["orders"][0]["reference"]
-    by_reference = client.get("/admin/orders", params={"search": reference}).json()
+    by_reference = client.get("/api/v1/admin/orders", params={"search": reference}).json()
     assert [order["reference"] for order in by_reference["orders"]] == [reference]
 
 
 def test_csv_export_honours_the_same_filters(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
     client = admin_client.client
-    response = client.get("/admin/orders/export.csv", params={"status": "pending"})
+    response = client.get("/api/v1/admin/orders/export.csv", params={"status": "pending"})
     assert response.status_code == 200
     assert "text/csv" in response.headers["content-type"]
 
     lines = response.text.strip().splitlines()
     assert lines[0].startswith("reference,status,customer_name")
     # Header plus one row per pending order.
-    expected = client.get("/admin/orders", params={"status": "pending"}).json()["total"]
+    expected = client.get("/api/v1/admin/orders", params={"status": "pending"}).json()["total"]
     assert len(lines) - 1 == expected
 
 
 def test_pagination_does_not_change_the_total(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
     client = admin_client.client
-    full = client.get("/admin/orders", params={"page_size": 200}).json()
-    first_page = client.get("/admin/orders", params={"page": 1, "page_size": 1}).json()
+    full = client.get("/api/v1/admin/orders", params={"page_size": 200}).json()
+    first_page = client.get("/api/v1/admin/orders", params={"page": 1, "page_size": 1}).json()
     assert first_page["total"] == full["total"]
     assert len(first_page["orders"]) == 1
 
@@ -477,7 +477,7 @@ def test_pagination_does_not_change_the_total(admin_client: AdminClient, seeded_
 
 
 def test_dashboard_reports_counts_and_outbox(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
-    response = admin_client.client.get("/admin/dashboard")
+    response = admin_client.client.get("/api/v1/admin/dashboard")
     assert response.status_code == 200
     body = response.json()
     assert body["counts_by_status"]["pending"] >= 1
@@ -491,7 +491,7 @@ def test_harvest_window_and_availability_updates_persist(admin_client: AdminClie
     client = admin_client.client
     today = date.today()
     window = client.post(
-        "/admin/harvest-windows",
+        "/api/v1/admin/harvest-windows",
         json={
             "starts_on": today.isoformat(),
             "ends_on": (today + timedelta(days=5)).isoformat(),
@@ -503,7 +503,7 @@ def test_harvest_window_and_availability_updates_persist(admin_client: AdminClie
     assert window.status_code == 200, window.text
 
     availability = client.put(
-        f"/admin/availability/{window.json()['id']}",
+        f"/api/v1/admin/availability/{window.json()['id']}",
         json={"statuses": {"1-1-5kg": "main_stock", "2-3kg": "available"}},
         headers=admin_client.headers(),
     )
@@ -515,7 +515,7 @@ def test_availability_rejects_an_unknown_size_class(admin_client: AdminClient, s
     client = admin_client.client
     today = date.today()
     window = client.post(
-        "/admin/harvest-windows",
+        "/api/v1/admin/harvest-windows",
         json={
             "starts_on": today.isoformat(),
             "ends_on": (today + timedelta(days=2)).isoformat(),
@@ -524,7 +524,7 @@ def test_availability_rejects_an_unknown_size_class(admin_client: AdminClient, s
         headers=admin_client.headers(),
     ).json()
     response = client.put(
-        f"/admin/availability/{window['id']}",
+        f"/api/v1/admin/availability/{window['id']}",
         json={"statuses": {"not-a-real-size": "available"}},
         headers=admin_client.headers(),
     )
@@ -540,7 +540,7 @@ def test_admin_mutations_are_written_to_the_audit_log(
     engine = admin_client.engine
     order = _first_order(admin_client.client, seeded_order)
     admin_client.client.post(
-        f"/admin/orders/{order['id']}/transition",
+        f"/api/v1/admin/orders/{order['id']}/transition",
         json={"to_status": OrderStatus.QUOTED.value, "version": order["version"]},
         headers=admin_client.headers(),
     )
@@ -656,16 +656,16 @@ def test_settings_and_size_class_updates_are_audited(admin_client: AdminClient, 
     client = admin_client.client
     assert (
         client.patch(
-            "/admin/settings/farm_address",
+            "/api/v1/admin/settings/farm_address",
             json={"value": "12 Farm Road, Lagos"},
             headers=admin_client.headers(),
         ).status_code
         == 200
     )
-    sizes = client.get("/admin/size-classes").json()
+    sizes = client.get("/api/v1/admin/size-classes").json()
     assert sizes
     updated = client.patch(
-        f"/admin/size-classes/{sizes[0]['id']}",
+        f"/api/v1/admin/size-classes/{sizes[0]['id']}",
         json={"descriptor": "Updated descriptor"},
         headers=admin_client.headers(),
     )
@@ -676,11 +676,11 @@ def test_settings_and_size_class_updates_are_audited(admin_client: AdminClient, 
 def test_missing_admin_resources_return_404(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
     client = admin_client.client
     missing = "00000000-0000-0000-0000-000000000000"
-    assert client.get(f"/admin/orders/{missing}").status_code == 404
-    assert client.get(f"/admin/customers/{missing}").status_code == 404
+    assert client.get(f"/api/v1/admin/orders/{missing}").status_code == 404
+    assert client.get(f"/api/v1/admin/customers/{missing}").status_code == 404
     assert (
         client.patch(
-            "/admin/settings/not-a-real-setting",
+            "/api/v1/admin/settings/not-a-real-setting",
             json={"value": "x"},
             headers=admin_client.headers(),
         ).status_code
@@ -693,7 +693,7 @@ def test_zero_and_negative_payments_are_refused(admin_client: AdminClient, seede
     client = admin_client.client
     for amount in (0, -500):
         response = client.post(
-            f"/admin/orders/{order['id']}/payments",
+            f"/api/v1/admin/orders/{order['id']}/payments",
             json={"amount_kobo": amount, "method": "cash"},
             headers=admin_client.headers(),
         )

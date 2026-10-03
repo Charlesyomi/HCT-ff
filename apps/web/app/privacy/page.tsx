@@ -15,19 +15,69 @@ export default function PrivacyPage() {
             <main className="mx-auto max-w-4xl px-4 py-10 md:px-8 lg:px-12">
                 <h1 className="font-display text-4xl font-bold text-[color:var(--text)]">Privacy Policy</h1>
                 <div className="mt-6 space-y-4 text-ink-muted">
+                    <p>
+                        We respect your privacy and only collect information needed to provide and
+                        improve our ordering service.
+                    </p>
+
                     <section>
-                        <h2 className="font-display text-xl font-bold text-ink">Information we collect</h2>
-                        <p className="mt-2">When you send an order or contact request, we collect the name and phone number you provide, optional email, your fish requirements, and delivery address details only when delivery is selected.</p>
+                        <h2 className="font-display text-xl font-bold text-ink">
+                            Information we collect
+                        </h2>
+                        <p className="mt-2">
+                            Depending on how you use the website, this may include information such as
+                            your name, phone number, delivery or fulfilment details, order information,
+                            and messages or information you provide when contacting us. When you send
+                            an order we collect the name, phone number and fish requirements you
+                            provide, an optional email address, and a delivery address only when you
+                            select delivery.
+                        </p>
                     </section>
+
                     <section>
                         <h2 className="font-display text-xl font-bold text-ink">How we use it</h2>
-                        <p className="mt-2">The farm uses this information to check availability, prepare a quote, arrange pickup or delivery, and contact you about the request. Submitting a request does not charge you.</p>
+                        <p className="mt-2">We use this information to:</p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>process and manage orders;</li>
+                            <li>communicate with customers about their orders;</li>
+                            <li>confirm product availability and fulfilment;</li>
+                            <li>provide customer support; and</li>
+                            <li>maintain and improve the website.</li>
+                        </ul>
                     </section>
+
                     <section>
-                        <h2 className="font-display text-xl font-bold text-ink">Your choices and retention</h2>
-                        <p className="mt-2">[EDIT ME] Add the farm’s contact details and the procedure for requesting access, correction or deletion of personal information. Document the approved retention period before launch.</p>
+                        <h2 className="font-display text-xl font-bold text-ink">Sharing</h2>
+                        <p className="mt-2">
+                            We do not sell your personal information. Some order information may be
+                            shared with the farm or fulfilment team where necessary to process and
+                            confirm your order.
+                        </p>
                     </section>
-                    <p>By submitting a request, you agree that the farm may contact you about it by WhatsApp, phone or email. We do not display your details publicly.</p>
+
+                    <section>
+                        <h2 className="font-display text-xl font-bold text-ink">
+                            Cookies and your choices
+                        </h2>
+                        <p className="mt-2">
+                            Our website may also use cookies or similar technologies required for the
+                            website to function properly. By submitting a request you agree that the
+                            farm may contact you about it by WhatsApp, phone or email. We do not
+                            display your details publicly.
+                        </p>
+                    </section>
+
+                    <section>
+                        <h2 className="font-display text-xl font-bold text-ink">Contact</h2>
+                        <p className="mt-2">
+                            If you have questions about how your information is handled, or you want
+                            to request access to, correction of, or deletion of your personal
+                            information, please contact us using the contact details provided on this
+                            website and we will deal with your request.
+                        </p>
+                    </section>
+
+                    <p>This policy may be updated as the service develops.</p>
                 </div>
             </main>
             <SiteFooter />

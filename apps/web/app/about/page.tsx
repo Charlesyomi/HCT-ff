@@ -11,10 +11,13 @@ export const metadata: Metadata = {
     description: 'Learn about our family farm and how we raise healthy catfish.',
 };
 
+// TODO(owner): replace each [TO CONFIRM: ...] marker with the real farm detail. They are
+// written this way so it is obvious which copy is still outstanding, instead of shipping
+// with stray [EDIT ME] text in the page.
 const editableSections = [
-    ['How we raise fish', '[EDIT ME] Describe the farm’s feeding, water-quality and fish-handling practices.'],
-    ['Harvest cadence', '[EDIT ME] We harvest roughly every six months, with dates published when a window is confirmed.'],
-    ['Pickup and delivery', '[EDIT ME] Add the farm pickup instructions and the towns or areas you serve by delivery.'],
+    ['How we raise fish', '[TO CONFIRM: feeding, water quality and how fish are handled before harvest.]'],
+    ['Harvest cadence', '[TO CONFIRM: how often you harvest, and how dates are published once a window is confirmed.]'],
+    ['Pickup and delivery', '[TO CONFIRM: pickup instructions and the towns or areas you deliver to.]'],
 ];
 
 export default async function AboutPage() {
@@ -25,12 +28,15 @@ export default async function AboutPage() {
             <SiteHeader />
             <main className="mx-auto max-w-5xl px-4 py-10 md:px-8 lg:px-12">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--brand-700)]">About us</p>
-                <h1 className="mt-3 max-w-3xl font-display text-4xl font-bold text-[color:var(--text)]">[EDIT ME] A family farm raising healthy catfish</h1>
+                <h1 className="mt-3 max-w-3xl font-display text-4xl font-bold text-[color:var(--text)]">Adesoba Catfish Farm: fresh catfish, cut to your order</h1>
 
                 <div className="mt-8 grid gap-7 md:grid-cols-2 md:items-center">
                     <div className="space-y-4 leading-7 text-ink-muted">
-                        <p>[EDIT ME] Introduce your family, how the farm began and what you want customers to know about buying fish directly from you.</p>
-                        <p>[EDIT ME] Explain how customers can choose a fish size and request pickup or delivery. The farm confirms stock and current pricing before an order is agreed.</p>
+                        <p>[TO CONFIRM: introduce the farm, how it began, and what you want customers to know about buying fish directly from you.]</p>
+                        <p>Ordering here is a request rather than a checkout. You choose a fish type and size, say how
+                        much you need and when, and pick up or delivery. The farm then confirms what
+                        is actually available, agrees the current price with you, and arranges the
+                        rest. Nothing is charged online.</p>
                         <Link href="/our-fish" className="inline-flex min-h-11 items-center rounded-full bg-[color:var(--brand-700)] px-5 font-semibold text-white">Explore our fish</Link>
                     </div>
                     <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">

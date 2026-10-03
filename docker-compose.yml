@@ -49,6 +49,8 @@ services:
       API_URL: http://api:8000
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NODE_ENV: development
+      # Shared with the API for the /api/revalidate hook.
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:-}
     depends_on:
       - api
     ports:

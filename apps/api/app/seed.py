@@ -51,9 +51,9 @@ AVAILABILITY_STATUSES = (
 )
 
 SITE_SETTINGS: tuple[tuple[str, JsonValue], ...] = (
-    ("whatsapp_number", "+2348012345678"),
-    ("phone_number", "+2348012345678"),
-    ("farm_address", "[EDIT ME] Farm address, Ogun State, Nigeria"),
+    ("whatsapp_number", "+2349019871421"),
+    ("phone_number", "+2349019871421"),
+    ("farm_address", "[TO CONFIRM: farm pickup address]"),
     ("farm_maps_url", None),
     ("business_hours", ["Mon–Sat, 8:00 AM–6:00 PM"]),
     ("min_order_kg", 40),

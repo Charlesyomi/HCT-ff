@@ -86,7 +86,11 @@ from app.services.admin_service import (
 
 logger = logging.getLogger("adesoba.admin")
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+# The admin cookie is scoped to the mount point so it is never sent to public pages
+# and never overwrites the customer session cookie. Keep in sync with the router prefix.
+ADMIN_COOKIE_PATH = "/api/v1/admin"
 
 LAGOS = ZoneInfo("Africa/Lagos")
 # Login throttling: 5 attempts per IP per 15 minutes, on top of the per-account lockout.
@@ -182,7 +186,7 @@ def admin_login(
         secure=settings.session_cookie_secure,
         samesite="lax",
         max_age=admin_service.ADMIN_ABSOLUTE_TIMEOUT_SECONDS,
-        path="/admin",
+        path=ADMIN_COOKIE_PATH,
     )
     return AdminLoginResponse(
         user=_user_payload(user),
@@ -210,7 +214,7 @@ def admin_logout(
             ip=_client_ip(request),
         )
         admin_service.delete_admin_session(session, record)
-    response.delete_cookie(ADMIN_SESSION_COOKIE_NAME, path="/admin")
+    response.delete_cookie(ADMIN_SESSION_COOKIE_NAME, path=ADMIN_COOKIE_PATH)
     return {"signed_out": True}
 
 

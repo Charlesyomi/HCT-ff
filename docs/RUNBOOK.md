@@ -87,7 +87,7 @@ Plain Postgres only: no Supabase/Neon SDK, no Supabase Auth or Storage. Switchin
    ```
 
    Generate the passphrase rather than typing it: `python -c "import secrets; print(secrets.token_urlsafe(18))"`.
-3. Sign in at `/admin` and change the password immediately — the seeded account carries
+3. Sign in at `/admin` (API under `/api/v1/admin`) and change the password immediately — the seeded account carries
    `must_change_password`, and any password an owner sets for a colleague does too.
 4. Set `SESSION_COOKIE_SECURE=true` once the site is served over HTTPS, otherwise the admin
    session cookie will travel in clear text. The same variable also secures the customer

@@ -152,7 +152,7 @@ def admin_client(order_app: tuple[TestClient, Engine]) -> AdminClient:
     client, engine = order_app
     user = seed_admin_user(engine)
     response = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": user.email, "password": ADMIN_PASSWORD},
     )
     assert response.status_code == 200, response.text
@@ -170,7 +170,7 @@ def staff_client(order_app: tuple[TestClient, Engine]) -> AdminClient:
     client, engine = order_app
     user = seed_admin_user(engine, email="staff@adesoba.test", role=AdminRole.STAFF.value)
     response = client.post(
-        "/admin/auth/login",
+        "/api/v1/admin/auth/login",
         json={"email": user.email, "password": ADMIN_PASSWORD},
     )
     assert response.status_code == 200, response.text

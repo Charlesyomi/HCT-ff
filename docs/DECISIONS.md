@@ -85,3 +85,13 @@
 
 - Chosen: after an availability, harvest-window or settings change the API POSTs to `${WEB_ORIGIN}/api/revalidate` with `REVALIDATE_SECRET`; a missing secret or a failed call is logged and swallowed, and the public pages keep their ≤60s timed revalidation as a backstop.
 - Reason: SPEC §8 requires on-demand revalidation, but the admin edit is already committed by the time the webhook fires. Letting a webhook failure propagate would report a failed write for a write that succeeded. The timed revalidate window bounds how stale the public catalog can be.
+
+## ADR 17: The admin API is mounted at `/api/v1/admin`
+
+- Chosen: the admin router is mounted under `/api/v1/admin` (not a top-level `/admin`), and the
+  session cookie is scoped to `Path=/api/v1/admin`.
+- Reason: `next.config.mjs` only proxies `/api/v1/*` to the API, and Caddy routes `/api/*` straight
+  to the API. A top-level `/admin` was therefore unreachable from the web origin, so the dashboard
+  could not call the API same-origin — which would have broken the session cookie model the Google
+  sign-in design depends on (ADR 15). Scoping the cookie to the mount point keeps it off public
+  pages and stops it colliding with the customer session cookie.

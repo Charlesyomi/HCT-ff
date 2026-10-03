@@ -67,7 +67,10 @@ export async function getCatalog(): Promise<Catalog | null> {
 
     try {
         const response = await fetch(`${apiUrl}/api/v1/catalog`, {
-            next: { revalidate: 60 },
+            // `catalog` is the tag the admin revalidation hook invalidates (SPEC §8), so an
+            // availability or settings change refreshes every public page immediately instead
+            // of waiting out the 60s window. The window stays as the backstop.
+            next: { revalidate: 60, tags: ['catalog'] },
         });
         if (!response.ok) return null;
 

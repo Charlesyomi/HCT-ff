@@ -56,7 +56,7 @@
 | 3 | **Order flow (UI)** | **Done** | 6-question desktop/mobile form, Review & Confirm with "Your details", delivery address reveals, and Zustand draft store with `sessionStorage`; Review & Confirm is now also served by the `/checkout` route (Addendum §A1) with `/order/sent/[reference]` for confirmation. |
 | 4 | **Order API** | **Done** | Customers/orders/reference-counters/order-events tables + migration, `POST /api/v1/orders` with atomic `AF-YYYY-NNNN` references, `Idempotency-Key` replay/409-style 422 conflicts, server-side business-rule validation, IP + per-phone rate limits, honeypot + Turnstile, hashed access tokens, `GET /orders/{reference}`, `POST /orders/lookup`, `POST /orders/{reference}/cancel`, order events, and 50 backend tests (7 Postgres-only tests run when `DATABASE_URL_TEST` is set). |
 | 5 | **Tracking** | **Done** | `/my-orders` now loads real data: Active/Completed tabs, "Track an order" lookup by reference + phone (`POST /api/v1/orders/lookup`), device-token storage so returning visits refresh the order, order detail with masked phone, event history and customer cancel, plus the signed-in account list from `GET /api/v1/me/orders`; 4 new dashboard tests and 12 API tests cover the endpoints. |
-| 6 | **Admin** | **Backend done, UI missing** | Admin API complete: auth/CSRF/lockout, dashboard, order list+detail+export, status machine, quotes, payments, availability/harvest/settings/catalog, customers, messages, owner-only users, audit log, quote-expiry job (`apps/api/app/routers/admin.py`, `app/services/admin_service.py`). The `/admin` screens themselves are still the static placeholder. |
+| 6 | **Admin** | **Backend done, UI missing** | Admin API complete: auth/CSRF/lockout, dashboard, order list+detail+export, status machine, quotes, payments, availability/harvest/settings/catalog, customers, messages, owner-only users, audit log, quote-expiry job (`apps/api/app/routers/admin.py`, `app/services/admin_service.py`). The `/api/v1/admin` screens themselves are still the static placeholder. |
 | 7 | **Hardening** | **Missing** | No Playwright e2e test suite, Lighthouse CI configurations, axe accessibility tests, Sentry tracking, rate-limiting enforcement, or production runbook content exist. |
 | 8 | **Launch prep** | **Missing** | Launch prep has not started; pages use placeholder copy (`[EDIT ME]`), placeholder SVGs, and orders cannot be placed end-to-end. |
 
@@ -128,21 +128,21 @@
 | `/api/v1/orders/lookup` | POST | **Done** | Implemented in `apps/api/app/main.py`; tested in `apps/api/tests/test_orders.py`. |
 | `/api/v1/orders/{reference}/cancel` | POST | **Done** | Implemented in `apps/api/app/main.py`; tested in `apps/api/tests/test_orders.py`. |
 | `/api/v1/contact` | POST | **Done** | Implemented in `apps/api/app/main.py:141-158`; tested in `apps/api/tests/test_catalog.py:82-110`. |
-| `/admin/auth/login\|logout` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/auth/me` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/auth/change-password` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/dashboard` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders/{id}` | GET, PATCH | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders/{id}/transition` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders/{id}/quote` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders/{id}/payments` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/harvest-windows` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/availability` | GET, PUT | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/size-classes`, `/admin/fish-types` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/settings`, `/admin/customers`, `/admin/messages` | GET, PATCH | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/orders/export.csv` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
-| `/admin/users` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/auth/login\|logout` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/auth/me` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/auth/change-password` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/dashboard` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders/{id}` | GET, PATCH | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders/{id}/transition` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders/{id}/quote` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders/{id}/payments` | POST | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/harvest-windows` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/availability` | GET, PUT | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/size-classes`, `/api/v1/admin/fish-types` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/settings`, `/api/v1/admin/customers`, `/api/v1/admin/messages` | GET, PATCH | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/orders/export.csv` | GET | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
+| `/api/v1/admin/users` | CRUD | **Done** | Implemented in `apps/api/app/routers/admin.py`; tested in `apps/api/tests/test_admin.py`. |
 | `/api/revalidate` webhook | POST | **Partial** | The API calls `${WEB_ORIGIN}/api/revalidate` after availability/harvest/settings changes (`apps/api/app/routers/admin.py`), guarded by `REVALIDATE_SECRET`. The **Next.js route itself is still missing**, so public pages currently rely on their 60s timed revalidation. |
 
 ---
