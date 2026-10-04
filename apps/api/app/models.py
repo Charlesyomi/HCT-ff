@@ -400,7 +400,7 @@ class OrderEvent(SQLModel, table=True):
     actor_id: str | None = Field(default=None, max_length=80, nullable=True)
     note: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(
-default_factory=current_timestamp,
+        default_factory=current_timestamp,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_at: datetime = Field(
@@ -423,9 +423,7 @@ class AdminUser(SQLModel, table=True):
     """Farm staff who can sign in to /admin. Seeded owner forces a password change."""
 
     __tablename__ = "admin_users"
-    __table_args__ = (
-        CheckConstraint("role IN ('owner', 'staff')", name="ck_admin_users_role"),
-    )
+    __table_args__ = (CheckConstraint("role IN ('owner', 'staff')", name="ck_admin_users_role"),)
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     email: str = Field(unique=True, index=True, max_length=255)
@@ -577,9 +575,7 @@ class AuditLog(SQLModel, table=True):
     """Every admin mutation is recorded here (SPEC §9)."""
 
     __tablename__ = "audit_log"
-    __table_args__ = (
-        Index("ix_audit_log_entity_entity_id", "entity", "entity_id"),
-    )
+    __table_args__ = (Index("ix_audit_log_entity_entity_id", "entity", "entity_id"),)
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     actor_type: str = Field(max_length=20)

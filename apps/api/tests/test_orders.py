@@ -6,12 +6,13 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from app.models import Availability, Customer, HarvestWindow, Order, SizeClass
+from app.rate_limiter import get_client_ip
 from app.schemas import OrderCreateRequest
 from app.services import turnstile as turnstile_module
 from app.services.order_service import (
@@ -31,6 +32,38 @@ from tests.conftest import (
 )
 
 LAGOS = ZoneInfo("Africa/Lagos")
+
+
+def test_client_ip_uses_forwarded_client_from_trusted_proxy_chain() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"1.1.1.1, 8.8.8.8, 10.0.0.1")],
+            "client": ("10.0.0.2", 1234),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+    )
+
+    assert get_client_ip(request) == "8.8.8.8"
+
+
+def test_client_ip_ignores_forwarded_header_from_untrusted_peer() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"8.8.8.8")],
+            "client": ("1.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+    )
+
+    assert get_client_ip(request) == "1.0.0.1"
 
 
 def post_order(

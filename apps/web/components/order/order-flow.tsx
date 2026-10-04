@@ -42,7 +42,12 @@ const orderQuestionFields: readonly (keyof OrderFormInput)[] = [
 ];
 
 const orderResponseSchema = z.object({ reference: z.string().min(1) });
-const errorResponseSchema = z.object({ error: z.object({ message: z.string() }) });
+const errorResponseSchema = z.object({
+    error: z.object({
+        message: z.string(),
+        fields: z.record(z.array(z.string())).nullable().optional(),
+    }),
+});
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
@@ -879,9 +884,43 @@ export function OrderFlow({
             const responseBody: unknown = await response.json().catch(() => null);
             if (!response.ok) {
                 const parsedError = errorResponseSchema.safeParse(responseBody);
-                setSubmissionError(parsedError.success
-                    ? parsedError.data.error.message
-                    : 'We could not send your request right now. Please retry or contact the farm on WhatsApp.');
+                const errorMessage = parsedError.success ? parsedError.data.error.message : 'We could not send your request right now. Please retry or contact the farm on WhatsApp.';
+                const fieldErrors = parsedError.success ? parsedError.data.error.fields ?? {} : {};
+                const fieldEntries = Object.entries(fieldErrors);
+
+                if (fieldEntries.length > 0) {
+                    for (const [field, messages] of fieldEntries) {
+                        const lastSegment = field.split('.').at(-1) ?? field;
+                        const mappedField = {
+                            fish_type: 'fish_type',
+                            size: 'size',
+                            quantity_kg: 'quantity_kg',
+                            preferred_date: 'preferred_date',
+                            time_slot: 'time_slot',
+                            fulfilment: 'fulfilment',
+                            delivery_address: 'delivery_address',
+                            delivery_landmark: 'delivery_landmark',
+                            notes: 'notes',
+                            customer_name: 'customer_name',
+                            phone: 'phone',
+                            email: 'email',
+                        }[lastSegment] as keyof OrderFormInput | undefined;
+
+                        if (mappedField) {
+                            form.setError(mappedField, {
+                                type: 'server',
+                                message: messages[0] ?? errorMessage,
+                            });
+                        }
+                    }
+                }
+
+                if (response.status === 429) {
+                    setSubmissionError('Too many attempts. Please wait a moment and try again, or contact the farm on WhatsApp.');
+                    return;
+                }
+
+                setSubmissionError(errorMessage);
                 return;
             }
             const parsedResponse = orderResponseSchema.safeParse(responseBody);

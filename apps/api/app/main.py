@@ -150,12 +150,19 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
         500: "server_error",
         503: "service_unavailable",
     }
+    detail = exc.detail
+    message = str(detail)
+    fields = None
+    if isinstance(detail, dict):
+        message = str(detail.get("message") or detail.get("detail") or detail)
+        fields = detail.get("fields")
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "error": {
                 "code": code_map.get(exc.status_code, "error"),
-                "message": str(exc.detail),
+                "message": message,
+                "fields": fields,
             }
         },
     )
@@ -163,16 +170,33 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
-    first_error = exc.errors()[0] if exc.errors() else {}
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
     msg = first_error.get("msg", "Invalid request input.")
     loc_parts = [str(part) for part in first_error.get("loc", []) if part != "body"]
     field_prefix = ".".join(loc_parts)
     if field_prefix:
         msg = f"{field_prefix}: {msg}"
+
+    fields: dict[str, list[str]] = {}
+    for error in errors:
+        loc = [str(part) for part in error.get("loc", []) if part != "body"]
+        if not loc:
+            continue
+        field_name = ".".join(loc)
+        fields.setdefault(field_name, []).append(str(error.get("msg", "Invalid request input.")))
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"error": {"code": "validation_error", "message": msg}},
+        content={
+            "error": {
+                "code": "validation_error",
+                "message": msg,
+                "fields": fields or None,
+            }
+        },
     )
+
 
 FISH_TYPE_TABLE: Table = SQLModel.metadata.tables["fish_types"]
 SIZE_CLASS_TABLE: Table = SQLModel.metadata.tables["size_classes"]
@@ -231,8 +255,8 @@ def catalog(response: Response, session: Session = Depends(get_session)) -> Cata
     defaults: dict[str, object] = {
         "whatsapp_number": "+2348012345678",
         "phone_number": "+2348012345678",
-        "farm_address": "[EDIT ME] Farm address, Ogun State, Nigeria",
-        "farm_maps_url": None,
+        "farm_address": "Adesoba Catfish Farm, Ogun State, Nigeria",
+        "farm_maps_url": "https://maps.google.com/?q=Adesoba+Catfish+Farm+Ogun+State+Nigeria",
         "business_hours": ["Mon–Sat, 8:00 AM–6:00 PM"],
         "min_order_kg": 40,
         "max_order_kg": 20000,
@@ -471,9 +495,11 @@ def _require_account(
 
 
 def _csrf_for(raw_session_id: str) -> str:
-    return base64.urlsafe_b64encode(
-        hashlib.sha256(f"csrf:{raw_session_id}".encode("ascii")).digest()
-    ).decode("ascii").rstrip("=")
+    return (
+        base64.urlsafe_b64encode(hashlib.sha256(f"csrf:{raw_session_id}".encode("ascii")).digest())
+        .decode("ascii")
+        .rstrip("=")
+    )
 
 
 @app.get("/api/v1/auth/google/start")
@@ -535,17 +561,23 @@ def google_callback(
 ) -> RedirectResponse:
     """Verify the callback, create the account session and return to a relative `next`."""
     if error is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Google returned an error: {error}.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Google returned an error: {error}."
+        )
     stored = auth_service.read_state_cookie(request.cookies.get(STATE_COOKIE_NAME))
     if stored is None or not state or not code or stored.get("state") != state:
         # A mismatched or expired state means another browser (or an attacker) started the flow.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sign-in state is invalid or expired.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Sign-in state is invalid or expired."
+        )
 
     try:
         id_token = auth_service.exchange_code_for_id_token(code, str(stored.get("verifier", "")))
         profile = auth_service.verify_id_token(id_token, stored.get("nonce"))
     except AuthError as auth_error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(auth_error)) from auth_error
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(auth_error)
+        ) from auth_error
 
     account = auth_service.upsert_account(session, profile)
     raw_session_id, _csrf = auth_service.create_session(
@@ -638,14 +670,20 @@ def attach_order(
     try:
         phone_e164 = normalize_nigerian_phone(payload.phone)
     except HTTPException as phone_error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found or details do not match.") from phone_error
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found or details do not match."
+        ) from phone_error
     if customer is None or customer.phone_e164 != phone_e164:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found or details do not match.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found or details do not match."
+        )
 
     try:
         attached_order = auth_service.attach_order_to_account(session, account, order)
     except AuthError as auth_error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(auth_error)) from auth_error
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(auth_error)
+        ) from auth_error
     return AttachOrderResponse(
         reference=attached_order.reference,
         attached=True,

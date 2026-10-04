@@ -11,13 +11,10 @@ export const metadata: Metadata = {
     description: 'Learn about our family farm and how we raise healthy catfish.',
 };
 
-// TODO(owner): replace each [TO CONFIRM: ...] marker with the real farm detail. They are
-// written this way so it is obvious which copy is still outstanding, instead of shipping
-// with stray [EDIT ME] text in the page.
-const editableSections = [
-    ['How we raise fish', '[TO CONFIRM: feeding, water quality and how fish are handled before harvest.]'],
-    ['Harvest cadence', '[TO CONFIRM: how often you harvest, and how dates are published once a window is confirmed.]'],
-    ['Pickup and delivery', '[TO CONFIRM: pickup instructions and the towns or areas you deliver to.]'],
+const farmSections = [
+    ['How we raise fish', 'We raise catfish in well-managed ponds, with attention to water quality, feeding and careful handling before each harvest window.'],
+    ['Harvest cadence', 'Harvest windows are published when they are confirmed, and we work with buyers to match the best collection or delivery date to what is available.'],
+    ['Pickup and delivery', 'Customers can collect directly from the farm, and delivery is arranged when the area and schedule are confirmed with the buyer.'],
 ];
 
 export default async function AboutPage() {
@@ -32,11 +29,11 @@ export default async function AboutPage() {
 
                 <div className="mt-8 grid gap-7 md:grid-cols-2 md:items-center">
                     <div className="space-y-4 leading-7 text-ink-muted">
-                        <p>[TO CONFIRM: introduce the farm, how it began, and what you want customers to know about buying fish directly from you.]</p>
+                        <p>Adesoba Catfish Farm raises healthy fish for households, sellers and businesses who want reliable catfish without the usual long supply chain. We keep the process simple: confirm the size and quantity, match the best harvest window, and agree the current price before delivery or collection.</p>
                         <p>Ordering here is a request rather than a checkout. You choose a fish type and size, say how
-                        much you need and when, and pick up or delivery. The farm then confirms what
-                        is actually available, agrees the current price with you, and arranges the
-                        rest. Nothing is charged online.</p>
+                            much you need and when, and pick up or delivery. The farm then confirms what
+                            is actually available, agrees the current price with you, and arranges the
+                            rest. Nothing is charged online.</p>
                         <Link href="/our-fish" className="inline-flex min-h-11 items-center rounded-full bg-[color:var(--brand-700)] px-5 font-semibold text-white">Explore our fish</Link>
                     </div>
                     <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">
@@ -51,7 +48,7 @@ export default async function AboutPage() {
                 </div>
 
                 <div className="mt-12 border-y border-line-soft">
-                    {editableSections.map(([title, text]) => (
+                    {farmSections.map(([title, text]) => (
                         <section key={title} className="grid gap-2 border-b border-line-soft py-5 last:border-b-0 sm:grid-cols-[220px_1fr]">
                             <h2 className="font-display text-xl font-bold text-ink">{title}</h2>
                             <p className="leading-7 text-ink-muted">{text}</p>

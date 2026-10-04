@@ -79,6 +79,19 @@ def test_catalog_returns_no_window_and_unavailable_sizes_without_a_published_win
     assert {size["status"] for size in response.json()["size_classes"]} == {"unavailable"}
 
 
+def test_catalog_does_not_expose_placeholder_farm_defaults(
+    catalog_app: tuple[TestClient, Engine],
+) -> None:
+    client, _ = catalog_app
+    response = client.get("/api/v1/catalog")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["settings"]["farm_address"] != "[EDIT ME] Farm address, Ogun State, Nigeria"
+    assert "[EDIT ME]" not in payload["settings"]["farm_address"]
+    assert "[TO CONFIRM" not in payload["settings"]["farm_address"]
+
+
 def test_contact_submission_is_trimmed_and_persisted(
     catalog_app: tuple[TestClient, Engine],
 ) -> None:

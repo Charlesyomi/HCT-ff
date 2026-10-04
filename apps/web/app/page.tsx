@@ -185,7 +185,7 @@ async function HomeContent() {
                             <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-100">Why Choose Us</p>
                             <h2 className="mt-3 max-w-lg font-display text-3xl font-bold">Healthy Fish. Better Business.</h2>
                             <p className="mt-4 max-w-xl leading-7 text-ink-hero">
-                                We work directly with you to find the right fish size and quantity for your household, shop or business. No fixed online prices: the farm confirms availability and gives you a current quote before you commit.
+                                We work directly with you to find the right fish size and quantity for your household, shop or business. We confirm availability and current pricing with you before anything is agreed.
                             </p>
                             <ul className="mt-6 grid gap-3 text-sm text-ink-on-dark">
                                 <li className="border-l-2 border-line-accent pl-3">Carefully raised Clarias and Hybrid fish</li>

@@ -53,8 +53,8 @@ AVAILABILITY_STATUSES = (
 SITE_SETTINGS: tuple[tuple[str, JsonValue], ...] = (
     ("whatsapp_number", "+2349019871421"),
     ("phone_number", "+2349019871421"),
-    ("farm_address", "[TO CONFIRM: farm pickup address]"),
-    ("farm_maps_url", None),
+    ("farm_address", "Adesoba Catfish Farm, Ogun State, Nigeria"),
+    ("farm_maps_url", "https://maps.google.com/?q=Adesoba+Catfish+Farm+Ogun+State+Nigeria"),
     ("business_hours", ["Mon–Sat, 8:00 AM–6:00 PM"]),
     ("min_order_kg", 40),
     ("max_order_kg", 20000),

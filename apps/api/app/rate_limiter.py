@@ -1,6 +1,7 @@
 import threading
 import time
 from collections import defaultdict
+from ipaddress import ip_address
 from fastapi import HTTPException, Request, status
 
 _LOCK = threading.Lock()
@@ -40,13 +41,24 @@ def check_rate_limit(key: str, limit: int, window_seconds: int) -> None:
 
 
 def get_client_ip(request: Request) -> str:
-    # Use direct client host; if behind reverse proxy X-Forwarded-For could be checked
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "127.0.0.1"
+    peer = request.client.host if request.client else "127.0.0.1"
+    try:
+        peer_address = ip_address(peer)
+    except ValueError:
+        return peer
+
+    if peer_address.is_private or peer_address.is_loopback:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        for value in reversed(forwarded.split(",")):
+            candidate = value.strip()
+            try:
+                address = ip_address(candidate)
+            except ValueError:
+                continue
+            if not (address.is_private or address.is_loopback):
+                return str(address)
+
+    return peer
 
 
 def limit_order_creation_ip(request: Request) -> None:
