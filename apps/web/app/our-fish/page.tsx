@@ -30,7 +30,7 @@ export default async function OurFishPage() {
                             <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">
                                 <Image
                                     src={fish.image_path}
-                                    alt={`${fish.name} catfish photograph placeholder`}
+                                    alt={`${fish.name} catfish`}
                                     fill
                                     priority={fish.sort_order === 1}
                                     sizes="(max-width: 639px) 100vw, 50vw"
@@ -55,7 +55,7 @@ export default async function OurFishPage() {
                     <div className="flex flex-col gap-3 border-b border-line-soft pb-5 sm:flex-row sm:items-end sm:justify-between">
                         <div>
                             <h2 className="font-display text-3xl font-bold">Available sizes</h2>
-                            <p className="mt-2 text-sm text-ink-muted">Availability updates with each published harvest window.</p>
+                            <p className="mt-2 text-sm text-ink-muted">Pick the size that fits your plate or your stall. Our main harvest is 2-3kg. Smaller 1-1.5kg fish, perfect for smoking and BBQ, are limited, so ask early.</p>
                         </div>
                         <Link href="/order" className="text-sm font-semibold text-[color:var(--brand-700)]">Ask about a size <span aria-hidden="true">→</span></Link>
                     </div>
