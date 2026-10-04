@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from app.models import (
     HarvestWindow,
     Order,
     OrderEvent,
+    OrderItem,
     OrderStatus,
     Quote,
     QuoteStatus,
@@ -26,7 +28,7 @@ from app.models import (
     SiteSetting,
     SizeClass,
 )
-from app.schemas import OrderCreateRequest, OrderQuotePublic
+from app.schemas import OrderCreateRequest, OrderItemPublic, OrderQuotePublic
 from app.services.email.outbox import enqueue_order_emails
 from app.services.notifier import get_notifier
 from app.services.turnstile import enforce_turnstile
@@ -86,12 +88,85 @@ def derive_order_access_token(secret_key: str, reference: str, idempotency_key: 
     return hmac.new(secret_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 
+@dataclass(frozen=True)
+class PricedLine:
+    """A validated order/cart line with the server-computed indicative price snapshot."""
+
+    fish_type: str
+    size: str
+    size_class_id: UUID
+    size_label: str
+    quantity_kg: int
+    indicative_unit_price_kobo: int | None
+    line_total_kobo: int | None
+
+
+@dataclass(frozen=True)
+class OrderSummary:
+    """The single-line summary kept on the order row for multi-line orders."""
+
+    fish_type: str
+    size_class_id: UUID
+    size_label_snapshot: str
+    quantity_kg: int
+    indicative_unit_price_kobo: int | None
+    indicative_total_kobo: int | None
+    is_bulk: bool
+
+
+def request_lines(request: OrderCreateRequest) -> list[tuple[str, str, int]]:
+    """Return the raw (fish_type, size, quantity_kg) lines from either payload form."""
+    if request.items:
+        return [(item.fish_type, item.size, item.quantity_kg) for item in request.items]
+    assert request.fish_type is not None  # guaranteed by the schema validator
+    assert request.size is not None
+    assert request.quantity_kg is not None
+    return [(request.fish_type, request.size, request.quantity_kg)]
+
+
+def merge_order_lines(lines: list[tuple[str, str, int]]) -> list[tuple[str, str, int]]:
+    """Merge duplicate (fish_type, size) lines by summing their quantities, keeping order."""
+    merged: dict[tuple[str, str], int] = {}
+    order: list[tuple[str, str]] = []
+    for fish_type, size, quantity_kg in lines:
+        key = (fish_type, size)
+        if key not in merged:
+            merged[key] = 0
+            order.append(key)
+        merged[key] += quantity_kg
+    return [(fish_type, size, merged[(fish_type, size)]) for fish_type, size in order]
+
+
+def load_order_items(session: Session, order_id: UUID) -> list[OrderItem]:
+    return list(
+        session.exec(
+            select(OrderItem)
+            .where(col(OrderItem.order_id) == order_id)
+            .order_by(col(OrderItem.created_at))
+        ).all()
+    )
+
+
+def order_items_public(items: list[OrderItem]) -> list[OrderItemPublic]:
+    return [
+        OrderItemPublic(
+            fish_type=item.fish_type,
+            size_label=item.size_label_snapshot,
+            quantity_kg=item.quantity_kg,
+            indicative_unit_price_kobo=item.indicative_unit_price_kobo,
+            line_total_kobo=item.line_total_kobo,
+        )
+        for item in items
+    ]
+
+
 def compute_payload_hash(request: OrderCreateRequest) -> str:
     """Compute deterministic SHA-256 digest of relevant order request fields."""
     payload_dict = {
-        "fish_type": request.fish_type,
-        "size": request.size,
-        "quantity_kg": request.quantity_kg,
+        "items": [
+            [fish_type, size, quantity_kg]
+            for fish_type, size, quantity_kg in merge_order_lines(request_lines(request))
+        ],
         "preferred_date": request.preferred_date.isoformat(),
         "time_slot": request.time_slot,
         "fulfilment": request.fulfilment,
@@ -192,6 +267,100 @@ def time_slot_labels(settings_map: dict[str, object]) -> dict[str, str]:
     return slots
 
 
+def resolve_order_lines(
+    session: Session,
+    raw_lines: list[tuple[str, str, int]],
+    *,
+    active_harvest_window: HarvestWindow | None,
+    size_cache: dict[str, SizeClass] | None = None,
+) -> list[PricedLine]:
+    """Validate each line against the catalog/availability and attach the indicative price.
+
+    Shared by order creation and the cart so both apply exactly the same per-line rules.
+    """
+    cache = size_cache if size_cache is not None else {}
+    priced: list[PricedLine] = []
+    for fish_type, size_slug, quantity_kg in raw_lines:
+        if quantity_kg < 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Each order line must be at least 1kg.",
+            )
+        size_class = cache.get(size_slug)
+        if size_class is None:
+            size_class = session.exec(
+                select(SizeClass).where(
+                    SizeClass.slug == size_slug,
+                    col(SizeClass.is_active).is_(True),
+                )
+            ).first()
+            if size_class is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Choose a fish size that is available in the catalog.",
+                )
+            cache[size_slug] = size_class
+
+        unit_price: int | None = None
+        if active_harvest_window is not None:
+            availability_rec = session.exec(
+                select(Availability).where(
+                    Availability.harvest_window_id == active_harvest_window.id,
+                    Availability.size_class_id == size_class.id,
+                )
+            ).first()
+            if availability_rec is not None and availability_rec.status in (
+                "sold_out",
+                "unavailable",
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Fish size '{size_class.label}' is currently unavailable "
+                        "for this harvest window."
+                    ),
+                )
+            if availability_rec is not None:
+                unit_price = availability_rec.indicative_price_per_kg_kobo
+
+        priced.append(
+            PricedLine(
+                fish_type=fish_type,
+                size=size_slug,
+                size_class_id=size_class.id,
+                size_label=size_class.label,
+                quantity_kg=quantity_kg,
+                indicative_unit_price_kobo=unit_price,
+                line_total_kobo=(quantity_kg * unit_price if unit_price is not None else None),
+            )
+        )
+    return priced
+
+
+def summarize_lines(lines: list[PricedLine]) -> OrderSummary:
+    """Collapse priced lines into the order-row summary (single-line behaviour stays intact)."""
+    total_quantity = sum(line.quantity_kg for line in lines)
+    distinct_fish = {line.fish_type for line in lines}
+    size_labels: list[str] = []
+    for line in lines:
+        if line.size_label not in size_labels:
+            size_labels.append(line.size_label)
+    all_priced = all(line.line_total_kobo is not None for line in lines)
+    return OrderSummary(
+        fish_type=next(iter(distinct_fish)) if len(distinct_fish) == 1 else "any",
+        size_class_id=lines[0].size_class_id,
+        size_label_snapshot=", ".join(size_labels)[:80],
+        quantity_kg=total_quantity,
+        indicative_unit_price_kobo=(
+            lines[0].indicative_unit_price_kobo if len(lines) == 1 else None
+        ),
+        indicative_total_kobo=(
+            sum(line.line_total_kobo or 0 for line in lines) if all_priced else None
+        ),
+        is_bulk=total_quantity >= 1000,
+    )
+
+
 def create_order(
     session: Session,
     request: OrderCreateRequest,
@@ -258,23 +427,13 @@ def create_order(
     max_order_kg = setting_int(settings_map, "max_order_kg", 20000)
     min_lead_days = setting_int(settings_map, "min_lead_days", 1)
 
-    if request.quantity_kg < min_order_kg or request.quantity_kg > max_order_kg:
+    # 5. Merge duplicate lines, validate the total, then price every line server-side.
+    requested_lines = merge_order_lines(request_lines(request))
+    total_quantity_kg = sum(quantity for _fish, _size, quantity in requested_lines)
+    if total_quantity_kg < min_order_kg or total_quantity_kg > max_order_kg:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Order quantity must be between {min_order_kg}kg and {max_order_kg}kg.",
-        )
-
-    # 5. Check size class and harvest window availability
-    size_class = session.exec(
-        select(SizeClass).where(
-            SizeClass.slug == request.size,
-            col(SizeClass.is_active).is_(True),
-        )
-    ).first()
-    if size_class is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Choose a fish size that is available in the catalog.",
         )
 
     today_lagos = datetime.now(ZoneInfo("Africa/Lagos")).date()
@@ -292,21 +451,12 @@ def create_order(
         .order_by(col(HarvestWindow.starts_on))
     ).first()
 
-    indicative_unit_price_kobo: int | None = None
-    if active_harvest_window is not None:
-        availability_rec = session.exec(
-            select(Availability).where(
-                Availability.harvest_window_id == active_harvest_window.id,
-                Availability.size_class_id == size_class.id,
-            )
-        ).first()
-        if availability_rec is not None and availability_rec.status in ("sold_out", "unavailable"):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Fish size '{size_class.label}' is currently unavailable for this harvest window.",
-            )
-        if availability_rec is not None:
-            indicative_unit_price_kobo = availability_rec.indicative_price_per_kg_kobo
+    priced_lines = resolve_order_lines(
+        session,
+        requested_lines,
+        active_harvest_window=active_harvest_window,
+    )
+    summary = summarize_lines(priced_lines)
 
     # 6. Time slot validation
     valid_slot_map = time_slot_labels(settings_map)
@@ -362,17 +512,13 @@ def create_order(
         status=OrderStatus.PENDING.value,
         version=1,
         account_id=account_id,
-        fish_type=request.fish_type,
-        size_class_id=size_class.id,
-        size_label_snapshot=size_class.label,
-        quantity_kg=request.quantity_kg,
-        indicative_unit_price_kobo=indicative_unit_price_kobo,
-        indicative_total_kobo=(
-            request.quantity_kg * indicative_unit_price_kobo
-            if indicative_unit_price_kobo is not None
-            else None
-        ),
-        is_bulk=(request.quantity_kg >= 1000),
+        fish_type=summary.fish_type,
+        size_class_id=summary.size_class_id,
+        size_label_snapshot=summary.size_label_snapshot,
+        quantity_kg=summary.quantity_kg,
+        indicative_unit_price_kobo=summary.indicative_unit_price_kobo,
+        indicative_total_kobo=summary.indicative_total_kobo,
+        is_bulk=summary.is_bulk,
         preferred_date=request.preferred_date,
         time_slot_key=request.time_slot,
         time_slot_label=time_slot_label,
@@ -392,6 +538,22 @@ def create_order(
         submitted_at=now_utc,
     )
     session.add(order)
+    session.flush()
+
+    # Persist every line (multi-line orders). For a legacy single-line payload this is one
+    # row mirroring the order summary, so the shape is uniform for all orders.
+    for line in priced_lines:
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                fish_type=line.fish_type,
+                size_class_id=line.size_class_id,
+                size_label_snapshot=line.size_label,
+                quantity_kg=line.quantity_kg,
+                indicative_unit_price_kobo=line.indicative_unit_price_kobo,
+                line_total_kobo=line.line_total_kobo,
+            )
+        )
     session.flush()
 
     # Initial order event

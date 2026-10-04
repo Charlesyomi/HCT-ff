@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 
@@ -305,6 +306,36 @@ class Order(SQLModel, table=True):
     )
 
 
+class OrderItem(SQLModel, table=True):
+    """One line of an order (multi-line orders).
+
+    The order row keeps a summary line so the existing single-line status machine, admin
+    list and email templates keep working unchanged; each individual line lives here with
+    the size label and indicative price snapshotted at submission time.
+    """
+
+    __tablename__ = "order_items"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    order_id: UUID = Field(foreign_key="orders.id", ondelete="CASCADE", index=True)
+    fish_type: str = Field(max_length=20)
+    size_class_id: UUID = Field(foreign_key="size_classes.id", ondelete="RESTRICT", index=True)
+    size_label_snapshot: str = Field(max_length=80)
+    quantity_kg: int = Field()
+    indicative_unit_price_kobo: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    line_total_kobo: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Account(SQLModel, table=True):
     """Google-signed-in customer account (Addendum §A4). Sign-in is always optional."""
 
@@ -349,6 +380,60 @@ class AccountSession(SQLModel, table=True):
     )
     created_ip: str | None = Field(default=None, max_length=64, nullable=True)
     user_agent: str | None = Field(default=None, max_length=400, nullable=True)
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class Cart(SQLModel, table=True):
+    """Server-side cart for a signed-in account, guarded by an optimistic `version`.
+
+    The cart only holds validated lines (fish type, size, kilogram quantity and the
+    indicative price snapshot); it is deliberately not an order and never reserves stock.
+    """
+
+    __tablename__ = "carts"
+
+    account_id: UUID = Field(foreign_key="accounts.id", ondelete="CASCADE", primary_key=True)
+    items: list[dict[str, object]] = Field(
+        default_factory=list,
+        sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=False),
+    )
+    version: int = Field(default=1)
+    created_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=current_timestamp,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class MobileAuthCode(SQLModel, table=True):
+    """Single-use, short-lived code handed to a mobile client after Google sign-in.
+
+    Only the SHA-256 hash of the code is stored. The code is bound to the client's PKCE
+    challenge (`code_challenge`), expires after two minutes and can be exchanged exactly
+    once for a session bearer token through `POST /auth/mobile/token`.
+    """
+
+    __tablename__ = "mobile_auth_codes"
+    __table_args__ = (Index("ix_mobile_auth_codes_expires_at", "expires_at"),)
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    code_hash: str = Field(unique=True, index=True, max_length=64)
+    challenge: str = Field(max_length=128)
+    account_id: UUID = Field(foreign_key="accounts.id", ondelete="CASCADE", index=True)
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    used_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
     created_at: datetime = Field(
         default_factory=current_timestamp,
         sa_column=Column(DateTime(timezone=True), nullable=False),

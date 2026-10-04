@@ -24,10 +24,12 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from sqlmodel import Session, col, select
+from fastapi import Request
+from sqlalchemy import update as sa_update
+from sqlmodel import SQLModel, Session, col, select
 
 from app.config import settings
-from app.models import Account, AccountSession, Customer, Order
+from app.models import Account, AccountSession, Customer, MobileAuthCode, Order
 
 logger = logging.getLogger("adesoba.auth")
 
@@ -41,6 +43,8 @@ SESSION_COOKIE_NAME = "adesoba_session"
 STATE_TTL_SECONDS = 600
 SESSION_TTL_DAYS = 30
 HTTP_TIMEOUT_SECONDS = 10.0
+# Mobile auth codes are single-use and short-lived; the app exchanges the code immediately.
+MOBILE_CODE_TTL_SECONDS = 120
 
 
 class AuthError(Exception):
@@ -120,6 +124,30 @@ def safe_next_path(next_path: str | None) -> str:
     if "://" in next_path or "\\" in next_path:
         return "/my-orders"
     return next_path
+
+
+def mobile_redirect_allowed(redirect_uri: str) -> bool:
+    """Check a mobile client redirect against `MOBILE_REDIRECT_ALLOWLIST`.
+
+    Entries are exact matches (`adesoba://auth`). An entry ending in `://` (e.g. `exp://`)
+    is treated as a development-only prefix so Expo dev builds can point at a local URL;
+    it never matches in production.
+    """
+    if not redirect_uri:
+        return False
+    for entry in (settings.mobile_redirect_allowlist or "").split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        if candidate == redirect_uri:
+            return True
+        if (
+            candidate.endswith("://")
+            and settings.app_env == "development"
+            and redirect_uri.startswith(candidate)
+        ):
+            return True
+    return False
 
 
 # --- Google endpoints ---
@@ -252,14 +280,14 @@ def upsert_account(session: Session, profile: GoogleProfile) -> Account:
     return account
 
 
-def create_session(
+def _new_session(
     session: Session,
     account: Account,
     *,
     created_ip: str | None,
     user_agent: str | None,
-) -> tuple[str, str]:
-    """Return (raw session id, CSRF token); only their hashes are persisted."""
+) -> tuple[AccountSession, str, str]:
+    """Create a hashed server-side session; returns (record, raw id, CSRF token)."""
     raw_session_id = secrets.token_urlsafe(32)
     csrf_token = _b64url(hashlib.sha256(f"csrf:{raw_session_id}".encode("ascii")).digest())
     record = AccountSession(
@@ -272,7 +300,55 @@ def create_session(
     )
     session.add(record)
     session.commit()
+    return record, raw_session_id, csrf_token
+
+
+def create_session(
+    session: Session,
+    account: Account,
+    *,
+    created_ip: str | None,
+    user_agent: str | None,
+) -> tuple[str, str]:
+    """Return (raw session id, CSRF token); only their hashes are persisted."""
+    _record, raw_session_id, csrf_token = _new_session(
+        session, account, created_ip=created_ip, user_agent=user_agent
+    )
     return raw_session_id, csrf_token
+
+
+def create_mobile_access_token(
+    session: Session,
+    account: Account,
+    *,
+    created_ip: str | None,
+    user_agent: str | None,
+) -> tuple[str, datetime]:
+    """Issue a bearer session for a mobile client; returns (raw token, expiry)."""
+    record, raw_session_id, _csrf = _new_session(
+        session, account, created_ip=created_ip, user_agent=user_agent
+    )
+    return raw_session_id, record.expires_at
+
+
+def resolve_request_session(
+    session: Session,
+    request: Request,
+) -> tuple[AccountSession | None, str | None, bool]:
+    """Resolve the signed-in session from a Bearer token or the session cookie.
+
+    Returns (record, raw_token, via_cookie). CSRF protection applies to cookie auth only:
+    a mobile app sends a bearer token and never had a browser cookie to protect.
+    """
+    raw_token: str | None = None
+    via_cookie = False
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        raw_token = header[7:].strip() or None
+    if raw_token is None:
+        raw_token = request.cookies.get(SESSION_COOKIE_NAME)
+        via_cookie = raw_token is not None
+    return current_session(session, raw_token), raw_token, via_cookie
 
 
 def current_session(session: Session, raw_session_id: str | None) -> AccountSession | None:
@@ -340,3 +416,59 @@ def account_orders(session: Session, account: Account) -> list[Order]:
             select(Order).where(col(Order.account_id) == account.id).order_by(col(Order.submitted_at))
         ).all()
     )
+
+
+def create_mobile_auth_code(session: Session, account: Account, *, challenge: str) -> str:
+    """Create a single-use, short-lived auth code bound to the client's PKCE challenge."""
+    raw_code = secrets.token_urlsafe(32)
+    session.add(
+        MobileAuthCode(
+            code_hash=hashlib.sha256(raw_code.encode("ascii")).hexdigest(),
+            challenge=challenge,
+            account_id=account.id,
+            expires_at=datetime.now(UTC) + timedelta(seconds=MOBILE_CODE_TTL_SECONDS),
+        )
+    )
+    session.commit()
+    return raw_code
+
+
+def exchange_mobile_auth_code(session: Session, raw_code: str, code_verifier: str) -> Account:
+    """Validate and single-use-consume a mobile auth code; returns the owning account.
+
+    Concurrency race: a code could be replayed from two devices at once, minting two
+    sessions from one sign-in.
+    Prevention: the code is consumed with an UPDATE conditional on `used_at IS NULL`, so
+    the second exchange matches zero rows and is rejected.
+    """
+    code_hash = hashlib.sha256(raw_code.encode("ascii")).hexdigest()
+    record = session.exec(
+        select(MobileAuthCode).where(col(MobileAuthCode.code_hash) == code_hash)
+    ).first()
+    if record is None:
+        raise AuthError("This sign-in code is not valid.")
+    now = datetime.now(UTC)
+    expires_at = record.expires_at if record.expires_at.tzinfo else record.expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
+        raise AuthError("This sign-in code has expired.")
+    if record.used_at is not None:
+        raise AuthError("This sign-in code has already been used.")
+    expected_challenge = _b64url(hashlib.sha256(code_verifier.encode("ascii")).digest())
+    if not hmac.compare_digest(expected_challenge, record.challenge):
+        raise AuthError("The code verifier does not match.")
+
+    codes = SQLModel.metadata.tables["mobile_auth_codes"]
+    result = session.execute(
+        sa_update(codes)
+        .where(codes.c.id == record.id, codes.c.used_at.is_(None))
+        .values(used_at=now, updated_at=now)
+    )
+    if getattr(result, "rowcount", 0) == 0:
+        session.rollback()
+        raise AuthError("This sign-in code has already been used.")
+    session.commit()
+
+    account = session.exec(select(Account).where(col(Account.id) == record.account_id)).first()
+    if account is None:
+        raise AuthError("The account for this sign-in code no longer exists.")
+    return account

@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     )
     session_cookie_secure: bool = Field(default=False, alias="SESSION_COOKIE_SECURE")
 
+    # Mobile client redirect allowlist for the Google sign-in flow. Comma-separated entries are
+    # matched exactly (`adesoba://auth`); an entry ending in `://` (e.g. `exp://`) is treated as
+    # a development-only prefix so Expo dev builds can be pointed at a local machine.
+    mobile_redirect_allowlist: str = Field(default="", alias="MOBILE_REDIRECT_ALLOWLIST")
+
     # Shared secret for the API -> Next.js on-demand revalidation webhook (SPEC §8).
     revalidate_secret: str | None = Field(default=None, alias="REVALIDATE_SECRET")
 

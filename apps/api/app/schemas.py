@@ -3,7 +3,7 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class FishTypePublic(BaseModel):
@@ -85,10 +85,31 @@ class ContactMessageCreated(BaseModel):
     status: Literal["received"] = "received"
 
 
-class OrderCreateRequest(BaseModel):
+class OrderItemInput(BaseModel):
+    """One requested line of a multi-line order.
+
+    The same per-line rules as the legacy single-line payload apply (known fish type, a
+    catalog size slug, a positive kilogram quantity). Prices are never accepted from the
+    client; the server fills them in.
+    """
+
     fish_type: Literal["clarias", "hybrid", "any"]
     size: str = Field(min_length=1)
-    quantity_kg: int
+    quantity_kg: int = Field(gt=0)
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def trim_size(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class OrderCreateRequest(BaseModel):
+    # Multi-line form: `items[]` supersedes the single-line fields below. The single-line
+    # fields are kept optional so existing web clients keep working unchanged.
+    items: list[OrderItemInput] | None = None
+    fish_type: Literal["clarias", "hybrid", "any"] | None = None
+    size: str | None = None
+    quantity_kg: int | None = None
     preferred_date: date
     time_slot: str = Field(min_length=1)
     fulfilment: Literal["pickup", "delivery"]
@@ -109,11 +130,37 @@ class OrderCreateRequest(BaseModel):
         "delivery_address",
         "delivery_landmark",
         "notes",
+        "size",
         mode="before",
     )
     @classmethod
     def trim_text(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def require_one_form(self) -> "OrderCreateRequest":
+        """Accept either `items[]` (1-10 lines) or the legacy single-line fields."""
+        if self.items is not None:
+            if not self.items:
+                raise ValueError("Provide at least one order line.")
+            if len(self.items) > 10:
+                raise ValueError("An order can contain at most 10 lines.")
+            return self
+        if self.fish_type is None or self.size is None or self.quantity_kg is None:
+            raise ValueError(
+                "Provide either items[] or the single-line fish_type, size and quantity_kg."
+            )
+        return self
+
+
+class OrderItemPublic(BaseModel):
+    """A public order line. `size_label` is the label snapshotted at submission time."""
+
+    fish_type: str
+    size_label: str
+    quantity_kg: int
+    indicative_unit_price_kobo: int | None = None
+    line_total_kobo: int | None = None
 
 
 class OrderCreateResponse(BaseModel):
@@ -123,6 +170,7 @@ class OrderCreateResponse(BaseModel):
     submitted_at: datetime
     indicative_unit_price_kobo: int | None
     indicative_total_kobo: int | None
+    items: list[OrderItemPublic] = []
 
 
 class OrderLookupRequest(BaseModel):
@@ -184,6 +232,7 @@ class OrderPublic(BaseModel):
     customer_name: str
     customer_phone_masked: str
     customer_email: str | None = None
+    items: list[OrderItemPublic] = []
     submitted_at: datetime
     events: list[OrderEventPublic] = []
     quote: OrderQuotePublic | None = None
@@ -219,6 +268,7 @@ class AccountOrderItem(BaseModel):
     preferred_date: date
     time_slot_label: str
     fulfilment: str
+    items: list[OrderItemPublic] = []
     submitted_at: datetime
     # Same single-quote rule as OrderPublic, so both views agree (SPEC §5.4).
     quote: OrderQuotePublic | None = None
@@ -238,6 +288,49 @@ class AttachOrderResponse(BaseModel):
     reference: str
     attached: bool
     status: str
+
+
+class CartLineInput(BaseModel):
+    fish_type: Literal["clarias", "hybrid", "any"]
+    size: str = Field(min_length=1)
+    quantity_kg: int = Field(gt=0)
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def trim_size(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class CartLine(BaseModel):
+    fish_type: str
+    size: str
+    size_label: str
+    quantity_kg: int
+    indicative_unit_price_kobo: int | None = None
+    line_total_kobo: int | None = None
+
+
+class CartUpdateRequest(BaseModel):
+    items: list[CartLineInput] = Field(min_length=1, max_length=10)
+    expected_version: int = Field(ge=0)
+
+
+class CartResponse(BaseModel):
+    items: list[CartLine] = []
+    version: int
+    updated_at: datetime | None = None
+    indicative_total_kobo: int | None = None
+
+
+class MobileTokenRequest(BaseModel):
+    code: str = Field(min_length=1)
+    code_verifier: str = Field(min_length=1)
+
+
+class MobileTokenResponse(BaseModel):
+    access_token: str
+    expires_at: datetime
+    token_type: str = "Bearer"
 
 
 class ErrorDetail(BaseModel):

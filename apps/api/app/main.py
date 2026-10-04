@@ -7,6 +7,8 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -24,6 +26,7 @@ from app.models import (
     Account,
     AccountSession,
     Availability,
+    Cart,
     ContactMessage,
     Customer,
     FishType,
@@ -46,12 +49,17 @@ from app.schemas import (
     AccountOrdersResponse,
     AttachOrderRequest,
     AttachOrderResponse,
+    CartLine,
+    CartResponse,
+    CartUpdateRequest,
     CatalogResponse,
     CatalogSettingsPublic,
     ContactMessageCreate,
     ContactMessageCreated,
     FishTypePublic,
     HarvestWindowPublic,
+    MobileTokenRequest,
+    MobileTokenResponse,
     OrderCancelResponse,
     OrderCreateRequest,
     OrderCreateResponse,
@@ -61,7 +69,7 @@ from app.schemas import (
     OrderPublic,
     SizeClassPublic,
 )
-from app.services import auth_service
+from app.services import auth_service, cart_service
 from app.services.auth_service import (
     SESSION_COOKIE_NAME,
     SESSION_TTL_DAYS,
@@ -77,9 +85,11 @@ from app.services.order_service import (
     public_quote_for,
     create_order,
     get_public_order_by_token,
+    load_order_items,
     lookup_order_by_phone,
     mask_phone_number,
     normalize_nigerian_phone,
+    order_items_public,
 )
 
 logger = logging.getLogger("adesoba.api")
@@ -358,8 +368,9 @@ def submit_order(
             detail="Idempotency-Key header is required.",
         )
     client_ip = get_client_ip(request)
-    # Sign-in is optional: a live session attaches the order to the account, but guests may always order.
-    record = auth_service.current_session(session, request.cookies.get(SESSION_COOKIE_NAME))
+    # Sign-in is optional: a live session (cookie or bearer) attaches the order to the
+    # account, but guests may always order.
+    record, _raw_token, _via_cookie = auth_service.resolve_request_session(session, request)
     account_id: UUID | None = None
     if record is not None:
         account = session.exec(select(Account).where(Account.id == record.account_id)).first()
@@ -382,6 +393,7 @@ def submit_order(
         submitted_at=submitted_at,
         indicative_unit_price_kobo=order.indicative_unit_price_kobo,
         indicative_total_kobo=order.indicative_total_kobo,
+        items=order_items_public(load_order_items(session, order.id)),
     )
 
 
@@ -419,6 +431,7 @@ def get_order_details(
         customer_name=customer.name,
         customer_phone_masked=mask_phone_number(customer.phone_e164),
         customer_email=customer.email,
+        items=order_items_public(load_order_items(session, order.id)),
         submitted_at=order.submitted_at,
         events=[OrderEventPublic.model_validate(e) for e in events],
         quote=public_quote_for(session, order.id),
@@ -459,6 +472,7 @@ def lookup_order(
         customer_name=customer.name,
         customer_phone_masked=mask_phone_number(customer.phone_e164),
         customer_email=customer.email,
+        items=order_items_public(load_order_items(session, order.id)),
         submitted_at=order.submitted_at,
         events=[OrderEventPublic.model_validate(e) for e in events],
         quote=public_quote_for(session, order.id),
@@ -486,11 +500,14 @@ def cancel_order(
 def _require_account(
     request: Request,
     session: Session,
-) -> tuple[AccountSession, Account, str]:
-    """Resolve the session cookie to a live account, or raise 401."""
-    raw_session_id = request.cookies.get(SESSION_COOKIE_NAME)
-    record = auth_service.current_session(session, raw_session_id)
-    if record is None or raw_session_id is None:
+) -> tuple[AccountSession, Account, str, bool]:
+    """Resolve a bearer token or the session cookie to a live account, or raise 401.
+
+    Returns (record, account, raw_token, via_cookie); `via_cookie` tells the caller whether
+    CSRF protection applies (cookie auth only).
+    """
+    record, raw_token, via_cookie = auth_service.resolve_request_session(session, request)
+    if record is None or raw_token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sign in with Google to use this feature.",
@@ -498,7 +515,7 @@ def _require_account(
     account = session.exec(select(Account).where(Account.id == record.account_id)).first()
     if account is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found.")
-    return record, account, raw_session_id
+    return record, account, raw_token, via_cookie
 
 
 def _csrf_for(raw_session_id: str) -> str:
@@ -509,13 +526,38 @@ def _csrf_for(raw_session_id: str) -> str:
     )
 
 
+def _append_query_param(url: str, key: str, value: str) -> str:
+    """Append a query parameter to a redirect target, preserving an existing query string."""
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}{key}={quote(value, safe='')}"
+
+
 @app.get("/api/v1/auth/google/start")
 def google_start(
     request: Request,
     response: Response,
     next: str | None = None,
+    client: str | None = None,
+    redirect_uri: str | None = None,
+    code_challenge: str | None = None,
 ) -> RedirectResponse:
-    """Begin the OIDC authorization-code + PKCE flow (Addendum §A4)."""
+    """Begin the OIDC authorization-code + PKCE flow (Addendum §A4).
+
+    `client=mobile` runs the same Google flow but, on success, hands a single-use auth code
+    back to the app's `redirect_uri` (validated against `MOBILE_REDIRECT_ALLOWLIST`).
+    """
+    is_mobile = client == "mobile"
+    if is_mobile:
+        if not redirect_uri or not auth_service.mobile_redirect_allowed(redirect_uri):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="redirect_uri is not allowed for mobile sign-in.",
+            )
+        if not code_challenge:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A PKCE code_challenge is required for mobile sign-in.",
+            )
     try:
         verifier, challenge = auth_service.generate_pkce_pair()
     except AuthError as auth_error:
@@ -525,17 +567,21 @@ def google_start(
         ) from auth_error
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
-    # The verifier and nonce are stored inside the signed state cookie so the callback needs
-    # no server-side state, while a forged or stale cookie cannot be replayed.
-    state_cookie = auth_service.sign_state_cookie(
-        {
-            "state": state,
-            "verifier": verifier,
-            "nonce": nonce,
-            "next": auth_service.safe_next_path(next),
-            "created_at": int(datetime.now(UTC).timestamp()),
-        }
-    )
+    # The verifier and nonce live inside the signed state cookie so the callback needs no
+    # server-side state, while a forged or stale cookie cannot be replayed. Mobile sign-in
+    # additionally remembers the app's redirect target and its PKCE challenge.
+    state_payload: dict[str, Any] = {
+        "state": state,
+        "verifier": verifier,
+        "nonce": nonce,
+        "next": auth_service.safe_next_path(next),
+        "created_at": int(datetime.now(UTC).timestamp()),
+    }
+    if is_mobile:
+        state_payload["client"] = "mobile"
+        state_payload["redirect_uri"] = redirect_uri
+        state_payload["mobile_challenge"] = code_challenge
+    state_cookie = auth_service.sign_state_cookie(state_payload)
     try:
         location = auth_service.authorization_url(
             state, challenge, auth_service.safe_next_path(next), nonce
@@ -587,6 +633,20 @@ def google_callback(
         ) from auth_error
 
     account = auth_service.upsert_account(session, profile)
+
+    if stored.get("client") == "mobile":
+        # Hand the app a single-use code bound to its PKCE challenge; the app exchanges it for
+        # a bearer token at /auth/mobile/token. No browser cookie is set for the app.
+        raw_code = auth_service.create_mobile_auth_code(
+            session, account, challenge=str(stored.get("mobile_challenge", ""))
+        )
+        redirect_target = _append_query_param(
+            str(stored.get("redirect_uri", "")), "code", raw_code
+        )
+        mobile_response = RedirectResponse(redirect_target)
+        mobile_response.delete_cookie(STATE_COOKIE_NAME, path="/api/v1/auth")
+        return mobile_response
+
     raw_session_id, _csrf = auth_service.create_session(
         session,
         account,
@@ -609,7 +669,7 @@ def google_callback(
 
 @app.get("/api/v1/auth/me", response_model=AccountMeResponse)
 def auth_me(request: Request, session: Session = Depends(get_session)) -> AccountMeResponse:
-    _record, account, _raw = _require_account(request, session)
+    _record, account, _raw, _via_cookie = _require_account(request, session)
     return AccountMeResponse(
         id=str(account.id),
         email=account.email,
@@ -618,14 +678,41 @@ def auth_me(request: Request, session: Session = Depends(get_session)) -> Accoun
     )
 
 
+@app.post("/api/v1/auth/mobile/token", response_model=MobileTokenResponse)
+def mobile_token(
+    payload: MobileTokenRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> MobileTokenResponse:
+    """Exchange a single-use mobile auth code for a bearer session token."""
+    try:
+        account = auth_service.exchange_mobile_auth_code(
+            session, payload.code, payload.code_verifier
+        )
+    except AuthError as auth_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(auth_error)
+        ) from auth_error
+    access_token, expires_at = auth_service.create_mobile_access_token(
+        session,
+        account,
+        created_ip=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    if expires_at.tzinfo is None:
+        # Some drivers (SQLite in tests) drop the timezone; the API contract is UTC ISO-8601.
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return MobileTokenResponse(access_token=access_token, expires_at=expires_at)
+
+
 @app.post("/api/v1/auth/logout")
 def auth_logout(
     request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
-    raw_session_id = request.cookies.get(SESSION_COOKIE_NAME)
-    record = auth_service.current_session(session, raw_session_id)
+    # Revokes whichever credential was presented: a bearer token (mobile) or the cookie.
+    record, _raw_token, _via_cookie = auth_service.resolve_request_session(session, request)
     if record is not None:
         auth_service.delete_session(session, record)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
@@ -635,7 +722,7 @@ def auth_logout(
 @app.get("/api/v1/me/orders", response_model=AccountOrdersResponse)
 def my_orders(request: Request, session: Session = Depends(get_session)) -> AccountOrdersResponse:
     """Third access path for My Orders: orders attached to the signed-in account."""
-    record, account, raw_session_id = _require_account(request, session)
+    record, account, raw_session_id, _via_cookie = _require_account(request, session)
     orders = auth_service.account_orders(session, account)
     return AccountOrdersResponse(
         orders=[
@@ -651,6 +738,7 @@ def my_orders(request: Request, session: Session = Depends(get_session)) -> Acco
                 preferred_date=order.preferred_date,
                 time_slot_label=order.time_slot_label,
                 fulfilment=order.fulfilment,
+                items=order_items_public(load_order_items(session, order.id)),
                 submitted_at=order.submitted_at,
                 quote=public_quote_for(session, order.id),
             )
@@ -664,12 +752,14 @@ def my_orders(request: Request, session: Session = Depends(get_session)) -> Acco
 def attach_order(
     payload: AttachOrderRequest,
     request: Request,
-    x_csrf_token: str = Header(..., alias="X-CSRF-Token"),
+    x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
     session: Session = Depends(get_session),
 ) -> AttachOrderResponse:
     """Attach a guest order to the signed-in account using reference + phone (A4)."""
-    record, account, raw_session_id = _require_account(request, session)
-    if not auth_service.verify_csrf(record, raw_session_id, x_csrf_token):
+    record, account, raw_session_id, via_cookie = _require_account(request, session)
+    # CSRF protects the browser cookie only. A bearer-authenticated app holds no ambient
+    # cookie a third-party site could ride, so the token is not required there.
+    if via_cookie and not auth_service.verify_csrf(record, raw_session_id, x_csrf_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token.")
 
     order = session.exec(select(Order).where(Order.reference == payload.reference)).first()
@@ -698,3 +788,66 @@ def attach_order(
         attached=True,
         status=attached_order.status,
     )
+
+
+# --- Cart (mobile client) ---
+
+
+def _cart_response(cart: Cart | None) -> CartResponse:
+    lines = [CartLine.model_validate(item) for item in (cart.items if cart else [])]
+    line_totals = [line.line_total_kobo for line in lines]
+    total_kobo = (
+        sum(value or 0 for value in line_totals)
+        if line_totals and all(value is not None for value in line_totals)
+        else None
+    )
+    return CartResponse(
+        items=lines,
+        version=cart.version if cart is not None else 0,
+        updated_at=cart.updated_at if cart is not None else None,
+        indicative_total_kobo=total_kobo,
+    )
+
+
+def _enforce_csrf_for_cookie(
+    record: AccountSession,
+    raw_token: str,
+    via_cookie: bool,
+    csrf_token: str | None,
+) -> None:
+    """CSRF is required for cookie-authenticated mutations, never for bearer tokens."""
+    if via_cookie and not auth_service.verify_csrf(record, raw_token, csrf_token):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token.")
+
+
+@app.get("/api/v1/me/cart", response_model=CartResponse)
+def get_cart(request: Request, session: Session = Depends(get_session)) -> CartResponse:
+    """Return the signed-in account's cart; an untouched cart is version 0 with no lines."""
+    _record, account, _raw, _via_cookie = _require_account(request, session)
+    return _cart_response(cart_service.get_cart(session, account.id))
+
+
+@app.put("/api/v1/me/cart", response_model=CartResponse)
+def put_cart(
+    payload: CartUpdateRequest,
+    request: Request,
+    x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
+    session: Session = Depends(get_session),
+) -> CartResponse:
+    """Replace the cart contents; a stale `expected_version` is rejected with 409."""
+    record, account, raw_token, via_cookie = _require_account(request, session)
+    _enforce_csrf_for_cookie(record, raw_token, via_cookie, x_csrf_token)
+    return _cart_response(cart_service.put_cart(session, account.id, payload))
+
+
+@app.delete("/api/v1/me/cart", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cart(
+    request: Request,
+    x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Empty the cart. Deleting an already-empty cart is a no-op, not an error."""
+    record, account, raw_token, via_cookie = _require_account(request, session)
+    _enforce_csrf_for_cookie(record, raw_token, via_cookie, x_csrf_token)
+    cart_service.delete_cart(session, account.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
