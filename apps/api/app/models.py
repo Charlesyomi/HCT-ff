@@ -4,7 +4,16 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import JsonValue
-from sqlalchemy import CheckConstraint, Column, DateTime, Index, JSON, Numeric, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Index,
+    JSON,
+    Numeric,
+    UniqueConstraint,
+)
 from sqlmodel import Field, SQLModel
 
 
@@ -119,6 +128,14 @@ class Availability(SQLModel, table=True):
     )
     status: str = Field(max_length=24)
     internal_estimate_kg: int | None = None
+    indicative_price_per_kg_kobo: int | None = Field(
+        default=None,
+        sa_column=Column(BigInteger, nullable=True),
+    )
+    price_updated_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
     created_at: datetime = Field(
         default_factory=current_timestamp,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -237,6 +254,12 @@ class Order(SQLModel, table=True):
     size_class_id: UUID = Field(foreign_key="size_classes.id", ondelete="RESTRICT", index=True)
     size_label_snapshot: str = Field(max_length=80)
     quantity_kg: int = Field()
+    indicative_unit_price_kobo: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    indicative_total_kobo: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
     is_bulk: bool = Field(default=False)
     account_id: UUID | None = Field(
         default=None,

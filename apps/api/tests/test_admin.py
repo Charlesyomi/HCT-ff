@@ -40,7 +40,12 @@ def _first_order(client: TestClient, seeded_order: dict[str, Any]) -> dict[str, 
 
 def test_admin_routes_require_a_session(order_app: tuple[TestClient, Engine]) -> None:
     client, _engine = order_app
-    for path in ("/api/v1/admin/dashboard", "/api/v1/admin/orders", "/api/v1/admin/customers", "/api/v1/admin/users"):
+    for path in (
+        "/api/v1/admin/dashboard",
+        "/api/v1/admin/orders",
+        "/api/v1/admin/customers",
+        "/api/v1/admin/users",
+    ):
         assert client.get(path).status_code == 401, path
 
 
@@ -212,7 +217,9 @@ def test_owner_can_manage_users(admin_client: AdminClient) -> None:
     assert admin_client.client.get("/api/v1/admin/users").status_code == 200
 
 
-def test_owner_cannot_demote_or_disable_own_account(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_owner_cannot_demote_or_disable_own_account(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     response = admin_client.client.patch(
         f"/api/v1/admin/users/{admin_client.admin_user.id}",
         json={"is_active": False},
@@ -240,7 +247,9 @@ def test_transition_moves_the_order_and_writes_an_order_event(
     assert any(event["to_status"] == OrderStatus.QUOTED.value for event in body["events"])
 
 
-def test_illegal_transition_is_refused_with_409(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_illegal_transition_is_refused_with_409(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     """A pending order cannot jump straight to completed."""
     order = _first_order(admin_client.client, seeded_order)
     response = admin_client.client.post(
@@ -251,7 +260,9 @@ def test_illegal_transition_is_refused_with_409(admin_client: AdminClient, seede
     assert response.status_code == 409
 
 
-def test_terminal_order_cannot_be_revived(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_terminal_order_cannot_be_revived(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     cancelled = client.post(
@@ -273,7 +284,9 @@ def test_terminal_order_cannot_be_revived(admin_client: AdminClient, seeded_orde
     assert revived.status_code == 409
 
 
-def test_stale_version_is_rejected_with_409(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_stale_version_is_rejected_with_409(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     first = client.post(
@@ -292,7 +305,9 @@ def test_stale_version_is_rejected_with_409(admin_client: AdminClient, seeded_or
     assert second.status_code == 409
 
 
-def test_updating_notes_requires_the_current_version(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_updating_notes_requires_the_current_version(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     assert (
@@ -378,7 +393,10 @@ def test_accepting_a_quote_confirms_the_order_and_sets_the_due_amount(
     )
     assert accepted.status_code == 200
     assert accepted.json()["due_kobo"] == 2_000_000
-    assert client.get(f"/api/v1/admin/orders/{order['id']}").json()["status"] == OrderStatus.CONFIRMED.value
+    assert (
+        client.get(f"/api/v1/admin/orders/{order['id']}").json()["status"]
+        == OrderStatus.CONFIRMED.value
+    )
 
     # Accepting twice is refused: the quote is no longer open.
     again = client.post(
@@ -404,7 +422,9 @@ def test_quote_with_a_discount_larger_than_the_total_is_refused(
 # --- Payments (SPEC §9) -------------------------------------------------------------
 
 
-def test_payments_accumulate_into_paid_and_balance(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_payments_accumulate_into_paid_and_balance(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     quote = client.post(
@@ -439,7 +459,9 @@ def test_payments_accumulate_into_paid_and_balance(admin_client: AdminClient, se
 # --- Listing, search and export (SPEC §8) --------------------------------------------
 
 
-def test_orders_can_be_filtered_by_status_and_searched(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_orders_can_be_filtered_by_status_and_searched(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     everything = client.get("/api/v1/admin/orders").json()
     assert everything["total"] >= 1
@@ -452,7 +474,9 @@ def test_orders_can_be_filtered_by_status_and_searched(admin_client: AdminClient
     assert [order["reference"] for order in by_reference["orders"]] == [reference]
 
 
-def test_csv_export_honours_the_same_filters(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_csv_export_honours_the_same_filters(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     response = client.get("/api/v1/admin/orders/export.csv", params={"status": "pending"})
     assert response.status_code == 200
@@ -465,7 +489,9 @@ def test_csv_export_honours_the_same_filters(admin_client: AdminClient, seeded_o
     assert len(lines) - 1 == expected
 
 
-def test_pagination_does_not_change_the_total(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_pagination_does_not_change_the_total(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     full = client.get("/api/v1/admin/orders", params={"page_size": 200}).json()
     first_page = client.get("/api/v1/admin/orders", params={"page": 1, "page_size": 1}).json()
@@ -476,7 +502,9 @@ def test_pagination_does_not_change_the_total(admin_client: AdminClient, seeded_
 # --- Dashboard (SPEC §9) ------------------------------------------------------------
 
 
-def test_dashboard_reports_counts_and_outbox(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_dashboard_reports_counts_and_outbox(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     response = admin_client.client.get("/api/v1/admin/dashboard")
     assert response.status_code == 200
     body = response.json()
@@ -487,7 +515,9 @@ def test_dashboard_reports_counts_and_outbox(admin_client: AdminClient, seeded_o
 # --- Catalog administration (SPEC §8) ------------------------------------------------
 
 
-def test_harvest_window_and_availability_updates_persist(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_harvest_window_and_availability_updates_persist(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     today = date.today()
     window = client.post(
@@ -504,14 +534,23 @@ def test_harvest_window_and_availability_updates_persist(admin_client: AdminClie
 
     availability = client.put(
         f"/api/v1/admin/availability/{window.json()['id']}",
-        json={"statuses": {"1-1-5kg": "main_stock", "2-3kg": "available"}},
+        json={
+            "statuses": {"1-1-5kg": "main_stock", "2-3kg": "available"},
+            "indicative_prices_per_kg_kobo": {"2-3kg": 125_000},
+        },
         headers=admin_client.headers(),
     )
     assert availability.status_code == 200, availability.text
     assert availability.json()["updated"] == 2
+    catalog = client.get("/api/v1/catalog").json()
+    priced_size = next(size for size in catalog["size_classes"] if size["slug"] == "2-3kg")
+    assert priced_size["indicative_price_per_kg_kobo"] == 125_000
+    assert priced_size["price_updated_at"] is not None
 
 
-def test_availability_rejects_an_unknown_size_class(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_availability_rejects_an_unknown_size_class(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     today = date.today()
     window = client.post(
@@ -632,9 +671,7 @@ def test_expire_stale_quotes_closes_the_waiting_order(
         expired_quote = session.exec(select(Quote)).first()
         assert expired_quote is not None
         assert expired_quote.status == QuoteStatus.EXPIRED.value
-        event = session.exec(
-            select(OrderEvent).where(col(OrderEvent.order_id) == order_id)
-        ).first()
+        event = session.exec(select(OrderEvent).where(col(OrderEvent.order_id) == order_id)).first()
         assert event is not None
         assert event.actor_type == "system"
 
@@ -652,7 +689,11 @@ def test_expire_stale_quotes_keeps_a_quote_inside_its_validity(
         refreshed = session.get(Order, order_id)
         assert refreshed is not None
         assert refreshed.status == OrderStatus.QUOTED.value
-def test_settings_and_size_class_updates_are_audited(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+
+
+def test_settings_and_size_class_updates_are_audited(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     assert (
         client.patch(
@@ -673,7 +714,9 @@ def test_settings_and_size_class_updates_are_audited(admin_client: AdminClient, 
     assert updated.json()["descriptor"] == "Updated descriptor"
 
 
-def test_missing_admin_resources_return_404(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_missing_admin_resources_return_404(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     client = admin_client.client
     missing = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/api/v1/admin/orders/{missing}").status_code == 404
@@ -688,7 +731,9 @@ def test_missing_admin_resources_return_404(admin_client: AdminClient, seeded_or
     )
 
 
-def test_zero_and_negative_payments_are_refused(admin_client: AdminClient, seeded_order: dict[str, Any]) -> None:
+def test_zero_and_negative_payments_are_refused(
+    admin_client: AdminClient, seeded_order: dict[str, Any]
+) -> None:
     order = _first_order(admin_client.client, seeded_order)
     client = admin_client.client
     for amount in (0, -500):
@@ -699,6 +744,7 @@ def test_zero_and_negative_payments_are_refused(admin_client: AdminClient, seede
         )
         assert response.status_code == 409, amount
 
+
 # --- Customer-visible quote (SPEC §5.4) ---------------------------------------------
 
 
@@ -707,7 +753,6 @@ def _id_for_reference(client: TestClient, admin: AdminClient, reference: str) ->
     listed = admin.client.get("/api/v1/admin/orders", params={"search": reference}).json()
     assert listed["orders"], f"order {reference} not found in the admin list"
     return listed["orders"][0]["id"]
-
 
 
 def _quote_body(**overrides: Any) -> dict[str, Any]:
@@ -755,9 +800,7 @@ def test_customer_sees_no_quote_before_the_farm_quotes(
     client, engine = order_app
     reference, token = _place_order(client, engine, suffix="01")
 
-    response = client.get(
-        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
-    )
+    response = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token})
     assert response.status_code == 200
     assert response.json()["quote"] is None
 
@@ -842,9 +885,9 @@ def test_a_quote_past_its_validity_reads_as_expired_even_before_the_cron_runs(
         headers=admin_client.headers(),
     )
 
-    quote = client.get(
-        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
-    ).json()["quote"]
+    quote = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}).json()[
+        "quote"
+    ]
     assert quote is not None
     assert quote["is_expired"] is True
     assert quote["status"] == "expired"
@@ -862,9 +905,9 @@ def test_quote_never_leaks_admin_identity(
         headers=admin_client.headers(),
     )
 
-    quote = client.get(
-        f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}
-    ).json()["quote"]
+    quote = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": token}).json()[
+        "quote"
+    ]
     assert "created_by" not in quote
     assert quote["message_to_customer"] == "Negotiated rate, valid for 48 hours."
 
@@ -881,7 +924,5 @@ def test_a_wrong_token_cannot_read_another_customers_quote(
         headers=admin_client.headers(),
     )
 
-    response = client.get(
-        f"/api/v1/orders/{reference}", headers={"X-Order-Token": "not-the-token"}
-    )
+    response = client.get(f"/api/v1/orders/{reference}", headers={"X-Order-Token": "not-the-token"})
     assert response.status_code == 401

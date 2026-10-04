@@ -12,6 +12,8 @@ export const metadata: Metadata = {
     description: 'Get in touch with Adesoba Catfish Farm by phone, WhatsApp or message.',
 };
 
+export const revalidate = 60;
+
 export default async function ContactPage() {
     const catalog = await getCatalog();
     const settings = catalog?.settings;

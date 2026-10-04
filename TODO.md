@@ -148,8 +148,7 @@ Budgets and e2e suite run in CI, restore procedure proven once, `docs/STATUS.md`
 
 ## 4. Milestone 8 — Launch prep
 
-1. Replace every `[EDIT ME]` placeholder (farm address, WhatsApp/phone numbers, harvest copy) with real
-   content in `site_settings` and the page copy.
+1. Verify production `site_settings` values (farm address, WhatsApp/phone numbers, business hours, and delivery details) match the owner's confirmed information.
 2. Replace `public/images/*-placeholder.svg` with real photography at the same aspect ratios; re-check
    image budgets after the swap.
 3. Domain + HTTPS (DNS, certificate, `SESSION_COOKIE_SECURE=true`, `sslmode=require` on the DB URLs).

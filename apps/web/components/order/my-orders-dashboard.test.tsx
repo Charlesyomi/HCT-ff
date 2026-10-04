@@ -20,6 +20,8 @@ const pendingOrder = {
     fish_type: 'clarias',
     size_label: '2 – 3kg',
     quantity_kg: 200,
+    indicative_unit_price_kobo: 12_500,
+    indicative_total_kobo: 2_500_000,
     is_bulk: false,
     preferred_date: '2026-10-06',
     time_slot_label: '10 AM–12 PM',
@@ -69,6 +71,7 @@ describe('MyOrdersDashboard (SPEC §5.4)', () => {
 
         expect(await screen.findByRole('heading', { name: 'Order AF-2026-0001' })).toBeInTheDocument();
         expect(screen.getByText('+234801***5678')).toBeInTheDocument();
+        expect(screen.getByText('₦25,000')).toBeInTheDocument();
         expect(window.localStorage.getItem('adesoba-tracked-orders:AF-2026-0001')).toBe('token-1');
     });
 

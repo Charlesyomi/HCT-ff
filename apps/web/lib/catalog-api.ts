@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { unstable_cache, unstable_noStore } from 'next/cache';
 
 const availabilityStatusSchema = z.enum([
     'limited',
@@ -27,6 +28,8 @@ const sizeClassSchema = z.object({
     is_smoking_size: z.boolean(),
     sort_order: z.number().int(),
     status: availabilityStatusSchema,
+    indicative_price_per_kg_kobo: z.number().int().nullable().optional(),
+    price_updated_at: z.string().nullable().optional(),
 });
 
 const harvestWindowSchema = z.object({
@@ -61,30 +64,46 @@ export type FishType = z.infer<typeof fishTypeSchema>;
 export type SizeClass = z.infer<typeof sizeClassSchema>;
 export type AvailabilityStatus = z.infer<typeof availabilityStatusSchema>;
 
+const fetchCatalog = unstable_cache(
+    async (apiUrl: string): Promise<Catalog> => {
+        const response = await fetch(`${apiUrl}/api/v1/catalog`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(5_000),
+        });
+        if (!response.ok) throw new Error(`Catalog request failed with ${response.status}.`);
+
+        const result = catalogSchema.safeParse(await response.json());
+        if (!result.success) throw new Error('Catalog response did not match the public schema.');
+        return result.data;
+    },
+    ['public-catalog'],
+    { revalidate: 60, tags: ['catalog'] },
+);
+
 export async function getCatalog(): Promise<Catalog | null> {
     const apiUrl = (process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000')
         .replace(/\/$/, '');
 
     try {
-        const response = await fetch(`${apiUrl}/api/v1/catalog`, {
-            // `catalog` is the tag the admin revalidation hook invalidates (SPEC §8), so an
-            // availability or settings change refreshes every public page immediately instead
-            // of waiting out the 60s window. The window stays as the backstop.
-            next: { revalidate: 60, tags: ['catalog'] },
-        });
-        if (!response.ok) return null;
-
-        const result = catalogSchema.safeParse(await response.json());
-        return result.success ? result.data : null;
+        return await fetchCatalog(apiUrl);
     } catch {
+        unstable_noStore();
         return null;
     }
 }
 
 export function formatHarvestDate(value: string): string {
-    return new Intl.DateTimeFormat('en-NG', {
+    return new Intl.DateTimeFormat('en-US', {
         day: 'numeric',
         month: 'short',
         timeZone: 'Africa/Lagos',
     }).format(new Date(`${value}T00:00:00+01:00`));
+}
+
+export function formatPriceUpdatedAt(value: string): string {
+    return new Intl.DateTimeFormat('en-NG', {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'Africa/Lagos',
+    }).format(new Date(value));
 }

@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SignInChoice } from './sign-in-choice';
 
 const assign = vi.fn();
@@ -26,11 +26,13 @@ describe('SignInChoice (Addendum §A4)', () => {
     });
 
     it('offers two equal options and never blocks phone checkout', async () => {
+        const onPhoneCheckout = vi.fn();
         mockAuthMe(null);
-        render(<SignInChoice next="/checkout" account={null} onAccountChange={() => {}} />);
+        render(<SignInChoice next="/checkout" account={null} onAccountChange={() => { }} onPhoneCheckout={onPhoneCheckout} />);
 
         expect(await screen.findByRole('button', { name: 'Continue with Google' })).toBeDisabled();
-        expect(screen.getByText('Continue with phone number')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Continue with phone number' }));
+        expect(onPhoneCheckout).toHaveBeenCalledOnce();
         // Sign-in is optional: a failing probe leaves the guest path untouched.
         expect(screen.queryByText(/Signed in as/)).not.toBeInTheDocument();
     });

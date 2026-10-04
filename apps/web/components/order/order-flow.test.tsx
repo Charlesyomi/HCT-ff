@@ -8,6 +8,9 @@ import type { Catalog } from '@/lib/catalog-api';
 import { useOrderDraftStore } from '@/lib/order-draft-store';
 import { OrderFlow } from './order-flow';
 
+const push = vi.fn();
+const replace = vi.fn();
+
 vi.mock('next/link', async () => {
     const react = await import('react');
     return {
@@ -29,8 +32,8 @@ vi.mock('next/navigation', async () => {
     const react = await import('react');
     return {
         useRouter: () => ({
-            push: vi.fn(),
-            replace: vi.fn(),
+            push,
+            replace,
             back: vi.fn(),
             refresh: vi.fn(),
             prefetch: vi.fn(),
@@ -48,16 +51,16 @@ const testCatalog = {
         { slug: 'hybrid', name: 'Hybrid', description: 'Bulk fish.', image_path: '/images/fish.svg', sort_order: 2 },
     ],
     size_classes: [
-        { slug: '1-1-5kg', label: '1 – 1.5kg', descriptor: 'Smoking / BBQ size', min_kg: 1, max_kg: 1.5, image_path: '/images/size.svg', is_featured: false, is_smoking_size: true, sort_order: 1, status: 'limited' },
-        { slug: '1-5-2kg', label: '1.5 – 2kg', descriptor: 'Medium size', min_kg: 1.5, max_kg: 2, image_path: '/images/size.svg', is_featured: false, is_smoking_size: false, sort_order: 2, status: 'available' },
-        { slug: '2-3kg', label: '2 – 3kg', descriptor: 'Table / wholesale size', min_kg: 2, max_kg: 3, image_path: '/images/size.svg', is_featured: true, is_smoking_size: false, sort_order: 3, status: 'main_stock' },
-        { slug: '3kg-plus', label: '3kg+', descriptor: 'Large size', min_kg: 3, max_kg: null, image_path: '/images/size.svg', is_featured: false, is_smoking_size: false, sort_order: 4, status: 'sold_out' },
+        { slug: '1-1-5kg', label: '1 – 1.5kg', descriptor: 'Smoking / BBQ size', min_kg: 1, max_kg: 1.5, image_path: '/images/size.svg', is_featured: false, is_smoking_size: true, sort_order: 1, status: 'limited', indicative_price_per_kg_kobo: null, price_updated_at: null },
+        { slug: '1-5-2kg', label: '1.5 – 2kg', descriptor: 'Medium size', min_kg: 1.5, max_kg: 2, image_path: '/images/size.svg', is_featured: false, is_smoking_size: false, sort_order: 2, status: 'available', indicative_price_per_kg_kobo: null, price_updated_at: null },
+        { slug: '2-3kg', label: '2 – 3kg', descriptor: 'Table / wholesale size', min_kg: 2, max_kg: 3, image_path: '/images/size.svg', is_featured: true, is_smoking_size: false, sort_order: 3, status: 'main_stock', indicative_price_per_kg_kobo: null, price_updated_at: null },
+        { slug: '3kg-plus', label: '3kg+', descriptor: 'Large size', min_kg: 3, max_kg: null, image_path: '/images/size.svg', is_featured: false, is_smoking_size: false, sort_order: 4, status: 'sold_out', indicative_price_per_kg_kobo: null, price_updated_at: null },
     ],
     harvest_window: { starts_on: '2026-10-03', ends_on: '2026-10-12', notes: null },
     settings: {
         whatsapp_number: '+2348012345678',
         phone_number: '+2348012345678',
-        farm_address: 'Adesoba Catfish Farm, Ogun State, Nigeria',
+        farm_address: 'Ajebamidele, along Ikere Road, Ado-Ekiti, Ekiti State, Nigeria',
         farm_maps_url: null,
         business_hours: ['Mon-Sat, 8:00 AM-6:00 PM'],
         min_order_kg: 40,
@@ -75,8 +78,8 @@ const testCatalog = {
     },
 } satisfies Catalog;
 
-function renderFlow(intent: string | null = null) {
-    return render(<OrderFlow catalog={testCatalog} initialIntent={intent} initialSize={null} />);
+function renderFlow(intent: string | null = null, initialFishType: string | null = null, catalog: Catalog = testCatalog) {
+    return render(<OrderFlow catalog={catalog} initialIntent={intent} initialSize={null} initialFishType={initialFishType} />);
 }
 
 async function advanceToQuestion(questionNumber: number) {
@@ -85,6 +88,8 @@ async function advanceToQuestion(questionNumber: number) {
 }
 
 beforeEach(() => {
+    push.mockReset();
+    replace.mockReset();
     vi.stubGlobal('fetch', vi.fn());
     useOrderDraftStore.persist.clearStorage();
     useOrderDraftStore.setState({
@@ -105,6 +110,31 @@ afterEach(() => {
 });
 
 describe('OrderFlow', () => {
+    it('preselects a fish type from the Our Fish route', async () => {
+        renderFlow(null, 'hybrid');
+
+        await waitFor(() => expect(screen.getByRole('radio', { name: /Hybrid Fast growing/ })).toBeChecked());
+    });
+
+    it('shows a running server-rate estimate on the quantity step', async () => {
+        const pricedCatalog: Catalog = {
+            ...testCatalog,
+            size_classes: testCatalog.size_classes.map((size) => size.slug === '2-3kg'
+                ? { ...size, indicative_price_per_kg_kobo: 12_500, price_updated_at: '2026-10-04T09:30:00+00:00' }
+                : size),
+        };
+        renderFlow(null, null, pricedCatalog);
+        await waitFor(() => expect(screen.getByRole('radio', { name: /Clarias/ })).toBeInTheDocument());
+        fireEvent.click(screen.getByRole('radio', { name: /Clarias/ }));
+        await advanceToQuestion(2);
+        fireEvent.click(screen.getByRole('radio', { name: /2 – 3kg Main stock/ }));
+        await advanceToQuestion(3);
+        fireEvent.click(screen.getByRole('button', { name: '40kg' }));
+
+        expect(screen.getByText('Estimated total: ₦5,000')).toBeInTheDocument();
+        expect(screen.getByText(/Estimate only\. Excludes delivery/)).toBeInTheDocument();
+    });
+
     it('applies the bulk quantity preset and keeps chip and custom input in sync', async () => {
         renderFlow('bulk');
         await waitFor(() => expect(screen.getByRole('button', { name: '500kg' })).toHaveAttribute('aria-pressed', 'true'));
@@ -166,7 +196,7 @@ describe('OrderFlow', () => {
         expect(screen.getByRole('radio', { name: /Hybrid Fast growing/ })).toBeChecked();
     });
 
-    it('restores Review and its idempotency key after remount', async () => {
+    it('routes the completed form to checkout and preserves its idempotency key', async () => {
         const firstRender = renderFlow();
         await waitFor(() => expect(screen.getByRole('radio', { name: /Clarias/ })).toBeInTheDocument());
         fireEvent.click(screen.getByRole('radio', { name: /Clarias/ }));
@@ -178,8 +208,8 @@ describe('OrderFlow', () => {
         fireEvent.change(screen.getByLabelText('Preferred time slot'), { target: { value: '8-10' } });
         await advanceToQuestion(5);
         await advanceToQuestion(6);
-        fireEvent.click(screen.getByRole('button', { name: 'Review & Confirm' }));
-        await waitFor(() => expect(screen.getByRole('heading', { name: 'Your details' })).toBeInTheDocument());
+        fireEvent.click(screen.getAllByRole('button', { name: 'Review request' })[0]);
+        await waitFor(() => expect(push).toHaveBeenCalledWith('/checkout'));
 
         const savedState = JSON.parse(sessionStorage.getItem('adesoba-order-draft') ?? '{}') as {
             state?: { idempotencyKey?: string; reviewOpen?: boolean };
@@ -190,7 +220,8 @@ describe('OrderFlow', () => {
         firstRender.unmount();
 
         renderFlow();
-        await waitFor(() => expect(screen.getByRole('heading', { name: 'Your details' })).toBeInTheDocument());
+        await waitFor(() => expect(replace).toHaveBeenCalledWith('/checkout'));
+        expect(screen.getByRole('heading', { name: 'What kind of fish do you want?' })).toBeInTheDocument();
         const restoredState = JSON.parse(sessionStorage.getItem('adesoba-order-draft') ?? '{}') as {
             state?: { idempotencyKey?: string; reviewOpen?: boolean };
         };
@@ -198,7 +229,7 @@ describe('OrderFlow', () => {
         expect(restoredState.state?.reviewOpen).toBe(true);
     });
 
-    it('requires customer details on Review before attempting submission', async () => {
+    it('keeps the order page as a form and sends a valid draft to checkout', async () => {
         renderFlow();
         await waitFor(() => expect(screen.getByRole('radio', { name: /Clarias/ })).toBeInTheDocument());
 
@@ -211,11 +242,8 @@ describe('OrderFlow', () => {
         fireEvent.change(screen.getByLabelText('Preferred time slot'), { target: { value: '8-10' } });
         await advanceToQuestion(5);
         await advanceToQuestion(6);
-        fireEvent.click(screen.getByRole('button', { name: 'Review & Confirm' }));
-        await waitFor(() => expect(screen.getByRole('heading', { name: 'Your details' })).toBeInTheDocument());
-        fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
-
-        await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveFocus());
-        expect(screen.getByText('Too small: expected string to have >=2 characters')).toBeInTheDocument();
+        fireEvent.click(screen.getAllByRole('button', { name: 'Review request' })[0]);
+        await waitFor(() => expect(push).toHaveBeenCalledWith('/checkout'));
+        expect(screen.queryByRole('heading', { name: 'Your details' })).not.toBeInTheDocument();
     });
 });

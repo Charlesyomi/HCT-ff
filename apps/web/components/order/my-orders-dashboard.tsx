@@ -15,6 +15,7 @@ import {
     type TrackedOrder,
 } from '@/lib/order-tracking';
 import { QuoteSummary } from '@/components/order/quote-summary';
+import { formatKobo } from '@/lib/money';
 
 type Tab = 'active' | 'completed';
 
@@ -225,6 +226,15 @@ export function MyOrdersDashboard() {
                         <dt className="text-ink-muted">Status</dt><dd className="font-semibold">{selected.status}</dd>
                         <dt className="text-ink-muted">Fish</dt><dd>{selected.fish_type} · {selected.size_label}</dd>
                         <dt className="text-ink-muted">Quantity</dt><dd>{selected.quantity_kg.toLocaleString('en-NG')}kg</dd>
+                        <dt className="text-ink-muted">Indicative estimate</dt>
+                        <dd>
+                            {selected.indicative_total_kobo != null ? (
+                                <>
+                                    <span className="font-semibold">{formatKobo(selected.indicative_total_kobo)}</span>
+                                    <span className="mt-1 block text-xs text-ink-muted">Estimate only. Excludes delivery. The farm confirms your final price.</span>
+                                </>
+                            ) : 'Price on request'}
+                        </dd>
                         <dt className="text-ink-muted">Preferred date</dt><dd>{selected.preferred_date}</dd>
                         <dt className="text-ink-muted">Time slot</dt><dd>{selected.time_slot_label}</dd>
                         <dt className="text-ink-muted">Phone</dt><dd>{selected.customer_phone_masked}</dd>

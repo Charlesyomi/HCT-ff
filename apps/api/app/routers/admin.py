@@ -106,9 +106,7 @@ def _admin_session_context(
     raw_session_id = request.cookies.get(ADMIN_SESSION_COOKIE_NAME)
     resolved = admin_service.resolve_admin_session(session, raw_session_id)
     if resolved is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required."
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
     record, user = resolved
     return record, user, raw_session_id or ""
 
@@ -316,9 +314,7 @@ def admin_dashboard(
             ),
         )
     ).one()
-    unhandled = session.exec(
-        select(func.count()).where(col(ContactMessage.status) == "new")
-    ).one()
+    unhandled = session.exec(select(func.count()).where(col(ContactMessage.status) == "new")).one()
 
     admin_service.record_audit(
         session,
@@ -593,9 +589,7 @@ def admin_get_order(
     except AdminNotFoundError as not_found:
         raise _translate(not_found) from not_found
 
-    customer = session.exec(
-        select(Customer).where(col(Customer.id) == order.customer_id)
-    ).first()
+    customer = session.exec(select(Customer).where(col(Customer.id) == order.customer_id)).first()
     quotes = list(
         session.exec(
             select(Quote)
@@ -865,7 +859,9 @@ def _trigger_revalidation(reason: str) -> None:
             timeout=5.0,
         )
     except Exception:
-        logger.warning("Revalidation webhook failed for %s; catalog revalidates on schedule", reason)
+        logger.warning(
+            "Revalidation webhook failed for %s; catalog revalidates on schedule", reason
+        )
 
 
 @router.get("/harvest-windows", response_model=list[AdminHarvestWindowOut])
@@ -1008,7 +1004,13 @@ def admin_update_availability(
 
     sizes = list(session.exec(select(SizeClass)).all())
     by_slug = {size.slug: size for size in sizes}
-    unknown = [slug for slug in payload.statuses if slug not in by_slug]
+    requested_slugs = set(payload.statuses) | set(payload.indicative_prices_per_kg_kobo)
+    if not requested_slugs:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide availability statuses or indicative prices.",
+        )
+    unknown = [slug for slug in requested_slugs if slug not in by_slug]
     if unknown:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1023,21 +1025,25 @@ def admin_update_availability(
         ).all()
     }
     updated = 0
-    for slug, new_status in payload.statuses.items():
+    for slug in requested_slugs:
         size = by_slug[slug]
         row = existing.get(size.id)
         if row is None:
             row = Availability(
                 harvest_window_id=window_id,
                 size_class_id=size.id,
-                status=new_status,
+                status=payload.statuses.get(slug, "unavailable"),
                 created_at=now,
                 updated_at=now,
             )
             existing[size.id] = row
-        else:
-            row.status = new_status
-            row.updated_at = now
+        elif slug in payload.statuses:
+            row.status = payload.statuses[slug]
+        if slug in payload.indicative_prices_per_kg_kobo:
+            price = payload.indicative_prices_per_kg_kobo[slug]
+            row.indicative_price_per_kg_kobo = price
+            row.price_updated_at = now if price is not None else None
+        row.updated_at = now
         session.add(row)
         updated += 1
 
@@ -1047,7 +1053,11 @@ def admin_update_availability(
         action="availability.bulk_update",
         entity="harvest_window",
         entity_id=str(window.id),
-        after={"updated": updated, "statuses": dict(payload.statuses)},
+        after={
+            "updated": updated,
+            "statuses": dict(payload.statuses),
+            "indicative_prices_per_kg_kobo": dict(payload.indicative_prices_per_kg_kobo),
+        },
         ip=_client_ip(request),
     )
     session.commit()
@@ -1128,9 +1138,7 @@ def admin_update_fish_type(
 ) -> AdminFishTypeOut:
     _record, user, _raw = context
     _csrf_guard(context, x_csrf_token)
-    fish_type = session.exec(
-        select(FishType).where(col(FishType.id) == fish_type_id)
-    ).first()
+    fish_type = session.exec(select(FishType).where(col(FishType.id) == fish_type_id)).first()
     if fish_type is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fish type not found.")
     changes = payload.model_dump(exclude_unset=True)
@@ -1285,9 +1293,7 @@ def admin_list_messages(
     statement = select(ContactMessage)
     if handled is not None:
         statement = statement.where(col(ContactMessage.status) == handled)
-    messages = session.exec(
-        statement.order_by(col(ContactMessage.created_at).desc())
-    ).all()
+    messages = session.exec(statement.order_by(col(ContactMessage.created_at).desc())).all()
     return [AdminMessageOut.model_validate(message) for message in messages]
 
 
@@ -1405,9 +1411,7 @@ def admin_update_user(
     except AdminForbiddenError as forbidden:
         raise _translate(forbidden) from forbidden
 
-    target = session.exec(
-        select(AdminUser).where(col(AdminUser.id) == admin_user_id)
-    ).first()
+    target = session.exec(select(AdminUser).where(col(AdminUser.id) == admin_user_id)).first()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 

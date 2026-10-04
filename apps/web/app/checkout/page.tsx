@@ -28,7 +28,7 @@ export default async function CheckoutPage() {
                 <h1 className="mt-3 font-display text-4xl font-bold text-ink">Checkout</h1>
                 <p className="mt-3 max-w-2xl leading-7 text-ink-muted">Check your details, then send the request to the farm. You have not been charged.</p>
                 {!catalog ? <p role="status" className="mt-5 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-3 text-sm text-brand-900">Live catalog details are temporarily unavailable. You can still send your request and the farm will confirm availability.</p> : null}
-                <OrderFlow catalog={catalog} initialSize={null} initialIntent={null} mode="review" />
+                <OrderFlow catalog={catalog} initialSize={null} initialFishType={null} initialIntent={null} mode="review" />
             </main>
             <SiteFooter />
             <MobileBottomNav />

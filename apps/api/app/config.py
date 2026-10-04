@@ -19,9 +19,13 @@ class Settings(BaseSettings):
     database_pool_max_overflow: int = Field(default=5, alias="DATABASE_POOL_MAX_OVERFLOW")
     database_pool_timeout_seconds: int = Field(default=10, alias="DATABASE_POOL_TIMEOUT_SECONDS")
     database_pool_recycle_seconds: int = Field(default=1800, alias="DATABASE_POOL_RECYCLE_SECONDS")
-    database_connect_timeout_seconds: int = Field(default=10, alias="DATABASE_CONNECT_TIMEOUT_SECONDS")
+    database_connect_timeout_seconds: int = Field(
+        default=10, alias="DATABASE_CONNECT_TIMEOUT_SECONDS"
+    )
     database_connect_retries: int = Field(default=5, alias="DATABASE_CONNECT_RETRIES")
-    database_connect_backoff_seconds: float = Field(default=2.0, alias="DATABASE_CONNECT_BACKOFF_SECONDS")
+    database_connect_backoff_seconds: float = Field(
+        default=2.0, alias="DATABASE_CONNECT_BACKOFF_SECONDS"
+    )
     database_warmup_on_startup: bool = Field(default=True, alias="DATABASE_WARMUP_ON_STARTUP")
     turnstile_secret_key: str | None = Field(default=None, alias="TURNSTILE_SECRET_KEY")
     site_url: str = Field(default="http://localhost:3000", alias="SITE_URL")
@@ -52,7 +56,6 @@ class Settings(BaseSettings):
         alias="GOOGLE_REDIRECT_URI",
     )
     session_cookie_secure: bool = Field(default=False, alias="SESSION_COOKIE_SECURE")
-    require_login_at_checkout: bool = Field(default=False, alias="REQUIRE_LOGIN_AT_CHECKOUT")
 
     # Shared secret for the API -> Next.js on-demand revalidation webhook (SPEC §8).
     revalidate_secret: str | None = Field(default=None, alias="REVALIDATE_SECRET")

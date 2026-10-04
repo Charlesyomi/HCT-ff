@@ -8,11 +8,13 @@ import { FormProvider, useForm, useFormContext, useWatch } from 'react-hook-form
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft, ArrowRight, Check, CircleAlert, LoaderCircle, MessageCircle, Phone } from 'lucide-react';
 import { z } from 'zod';
-import type { Catalog, SizeClass } from '@/lib/catalog-api';
+import { formatHarvestDate, formatPriceUpdatedAt, type Catalog, type SizeClass } from '@/lib/catalog-api';
 import { createOrderFormSchema, defaultPreferredDate, deliveryAddressSchema, type OrderFormInput, type OrderFormValues } from '@/lib/order-form';
 import { useOrderDraftStore, type OrderSourceIntent } from '@/lib/order-draft-store';
 import { StatusPill } from '@/components/catalog/status-pill';
 import { SignInChoice, type SignedInAccount } from '@/components/auth/sign-in-choice';
+import { formatKobo } from '@/lib/money';
+import { fetchTrackedOrder, readTrackedToken, rememberTrackedOrder, type TrackedOrder } from '@/lib/order-tracking';
 
 const fishOptions = [
     { value: 'clarias', label: 'Clarias', description: 'Common and widely available.' },
@@ -41,7 +43,12 @@ const orderQuestionFields: readonly (keyof OrderFormInput)[] = [
     'notes',
 ];
 
-const orderResponseSchema = z.object({ reference: z.string().min(1) });
+const orderResponseSchema = z.object({
+    reference: z.string().min(1),
+    access_token: z.string().min(1),
+    indicative_unit_price_kobo: z.number().int().nullable().optional(),
+    indicative_total_kobo: z.number().int().nullable().optional(),
+});
 const errorResponseSchema = z.object({
     error: z.object({
         message: z.string(),
@@ -52,47 +59,103 @@ const errorResponseSchema = z.object({
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 /** Cloudflare Turnstile invisible widget. Renders nothing when no site key is configured. */
-function TurnstileWidget({ onToken }: { onToken: (token: string | null) => void }) {
+type TurnstileStatus = 'disabled' | 'verifying' | 'verified' | 'error';
+
+function TurnstileWidget({
+    onToken,
+    onStatus,
+    retryCount,
+}: {
+    onToken: (token: string | null) => void;
+    onStatus: (status: TurnstileStatus) => void;
+    retryCount: number;
+}) {
     const containerRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        if (!turnstileSiteKey || !containerRef.current) return;
+        if (!turnstileSiteKey) {
+            onStatus('disabled');
+            return;
+        }
+
+        let disposed = false;
+        let settled = false;
         let widgetId: string | null = null;
+        let timeout: ReturnType<typeof setTimeout>;
+        let script: HTMLScriptElement | null = null;
+        type TurnstileApi = {
+            render: (element: HTMLElement, options: Record<string, unknown>) => string;
+            execute: (id: string) => void;
+            remove?: (id: string) => void;
+        };
+        const getTurnstile = (): TurnstileApi | undefined => (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+        const fail = () => {
+            if (disposed || settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            onToken(null);
+            onStatus('error');
+        };
+        const startTimeout = () => {
+            settled = false;
+            clearTimeout(timeout);
+            timeout = setTimeout(fail, 10_000);
+        };
         const render = () => {
-            const turnstile = (window as unknown as {
-                turnstile?: {
-                    render: (element: HTMLElement, options: Record<string, unknown>) => string;
-                    reset: (id: string) => void;
-                };
-            }).turnstile;
-            if (!turnstile || !containerRef.current) return;
-            widgetId = turnstile.render(containerRef.current, {
-                sitekey: turnstileSiteKey,
-                callback: (token: string) => onToken(token),
-                'expired-callback': () => onToken(null),
-                'error-callback': () => onToken(null),
-                appearance: 'execution-only',
-            });
+            if (disposed || settled) return;
+            const turnstile = getTurnstile();
+            if (!turnstile || !containerRef.current) return fail();
+            try {
+                widgetId = turnstile.render(containerRef.current, {
+                    sitekey: turnstileSiteKey,
+                    size: 'invisible',
+                    appearance: 'execute',
+                    callback: (token: string) => {
+                        if (disposed) return;
+                        settled = true;
+                        clearTimeout(timeout);
+                        onToken(token);
+                        onStatus('verified');
+                    },
+                    'expired-callback': () => {
+                        if (disposed) return;
+                        onToken(null);
+                        onStatus('verifying');
+                        startTimeout();
+                    },
+                    'error-callback': fail,
+                });
+                turnstile.execute(widgetId);
+            } catch {
+                fail();
+            }
         };
 
-        if ((window as unknown as { turnstile?: unknown }).turnstile) {
+        onToken(null);
+        onStatus('verifying');
+        startTimeout();
+        if (getTurnstile()) {
             render();
         } else {
-            const script = document.createElement('script');
+            script = document.createElement('script');
             script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
             script.async = true;
             script.defer = true;
             script.onload = render;
+            script.onerror = fail;
             document.head.appendChild(script);
         }
 
         return () => {
-            if (widgetId) onToken(null);
+            disposed = true;
+            clearTimeout(timeout);
+            if (widgetId) getTurnstile()?.remove?.(widgetId);
+            script?.remove();
         };
-    }, [onToken]);
+    }, [onStatus, onToken, retryCount]);
 
     if (!turnstileSiteKey) return null;
-    return <div ref={containerRef} aria-hidden="true" className="hidden" />;
+    return <div ref={containerRef} aria-hidden="true" className="min-h-0" />;
 }
 
 /** Honeypot field: hidden from people, filled by naive bots (SPEC §6.12). */
@@ -129,7 +192,7 @@ function SectionHeading({ number, children }: { number: number; children: string
     );
 }
 
-function Stepper({ activeStep }: { activeStep: number }) {
+export function Stepper({ activeStep }: { activeStep: number }) {
     return (
         <ol aria-label="Order progress" className="mb-8 grid grid-cols-3 border-b border-line-soft">
             {steps.map((step, index) => {
@@ -190,7 +253,7 @@ function AvailabilitySidebar({ catalog }: { catalog: Catalog | null }) {
             <section className="border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] p-5">
                 <h2 className="font-display text-xl font-bold text-ink">Current Availability</h2>
                 {catalog?.harvest_window ? (
-                    <p className="mt-2 text-sm text-ink-muted">Next harvest: {catalog.harvest_window.starts_on} – {catalog.harvest_window.ends_on}</p>
+                    <p className="mt-2 text-sm text-ink-muted">Next harvest: {formatHarvestDate(catalog.harvest_window.starts_on)} – {formatHarvestDate(catalog.harvest_window.ends_on)}</p>
                 ) : (
                     <p className="mt-2 text-sm text-ink-muted">Next harvest date to be announced. You can still send a request.</p>
                 )}
@@ -257,6 +320,7 @@ function OrderQuestions({
     const maxOrder = catalog?.settings.max_order_kg ?? 20_000;
     const leadDays = catalog?.settings.min_lead_days ?? 1;
     const harvestWindow = catalog?.harvest_window;
+    const selectedSizeDetails = sizes.find((size) => size.slug === selectedSize);
     const quantityPresetKg = useOrderDraftStore((state) => state.quantityPresetKg);
     const tonnePlusCustom = useOrderDraftStore((state) => state.tonnePlusCustom);
     const sourceIntent = useOrderDraftStore((state) => state.sourceIntent);
@@ -356,6 +420,14 @@ function OrderQuestions({
                 />
                 <p id="quantity-hint" className="mt-2 text-sm text-ink-muted">Minimum {minOrder}kg. Quantities of 1 tonne or more are bulk orders.</p>
                 <FieldError id="quantity-error" message={errors.quantity_kg?.message} />
+                {selectedSizeDetails ? (
+                    selectedSizeDetails.indicative_price_per_kg_kobo != null && Number.isInteger(quantity) ? (
+                        <div className="mt-5 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-3" aria-live="polite">
+                            <p className="text-sm font-semibold text-brand-900">Estimated total: {formatKobo(quantity * selectedSizeDetails.indicative_price_per_kg_kobo)}</p>
+                            <p className="mt-1 text-xs text-ink-muted">Estimate only. Excludes delivery. The farm confirms your final price.</p>
+                        </div>
+                    ) : <p className="mt-4 text-sm text-ink-muted">Price on request</p>
+                ) : null}
             </QuestionSection>
 
             <QuestionSection number={4} title="When do you need it?" active={activeMobileStep === 3}>
@@ -374,7 +446,7 @@ function OrderQuestions({
                         />
                         <FieldError id="date-error" message={errors.preferred_date?.message} />
                         {isOutsideHarvest && harvestWindow ? (
-                            <p className="mt-2 text-sm text-ink-muted">Our next harvest is {harvestWindow.starts_on}–{harvestWindow.ends_on}. We’ll confirm the best date with you.</p>
+                            <p className="mt-2 text-sm text-ink-muted">Our next harvest is {formatHarvestDate(harvestWindow.starts_on)}–{formatHarvestDate(harvestWindow.ends_on)}. We’ll confirm the best date with you.</p>
                         ) : null}
                         {isSunday ? <p className="mt-2 text-sm text-ink-muted">Sunday requests are subject to confirmation.</p> : null}
                     </div>
@@ -443,7 +515,7 @@ function OrderQuestions({
             <div className="mt-7 hidden items-center justify-between gap-3 lg:flex">
                 <Link href="/" className="inline-flex min-h-11 items-center rounded-full border border-line-soft px-5 font-semibold text-ink hover:bg-canvas-tint">Back to Home</Link>
                 <button type="button" onClick={onCheckAvailability} disabled={pending} className="inline-flex min-h-12 items-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:opacity-60">
-                    Check Availability <ArrowRight aria-hidden="true" className="ml-2" size={17} />
+                    Review request <ArrowRight aria-hidden="true" className="ml-2" size={17} />
                 </button>
             </div>
             <div className="mt-7 flex items-center justify-between gap-3 lg:hidden">
@@ -453,7 +525,7 @@ function OrderQuestions({
                     <button type="button" onClick={onBack} className="inline-flex min-h-11 items-center rounded-full border border-line-soft px-4 font-semibold text-ink"><ArrowLeft aria-hidden="true" className="mr-2" size={17} />Back</button>
                 )}
                 <button type="button" onClick={onNext} disabled={pending} className="inline-flex min-h-11 items-center rounded-full bg-[color:var(--brand-700)] px-5 font-semibold text-white disabled:opacity-60">
-                    {activeMobileStep === 5 ? 'Review & Confirm' : 'Next'} <ArrowRight aria-hidden="true" className="ml-2" size={17} />
+                    {activeMobileStep === 5 ? 'Review request' : 'Next'} <ArrowRight aria-hidden="true" className="ml-2" size={17} />
                 </button>
             </div>
         </>
@@ -493,6 +565,11 @@ function ReviewPanel({
     onHoneypotChange,
     turnstileToken,
     onTurnstileToken,
+    turnstileStatus,
+    turnstileRetryCount,
+    onTurnstileStatus,
+    onTurnstileRetry,
+    fallbackHref,
     account,
     onAccountChange,
     checkoutRoute,
@@ -506,7 +583,12 @@ function ReviewPanel({
     honeypotValue: string;
     onHoneypotChange: (value: string) => void;
     turnstileToken: string | null;
+    turnstileRetryCount: number;
     onTurnstileToken: (token: string | null) => void;
+    turnstileStatus: TurnstileStatus;
+    onTurnstileStatus: (status: TurnstileStatus) => void;
+    onTurnstileRetry: () => void;
+    fallbackHref: string;
     account: SignedInAccount;
     onAccountChange: (account: SignedInAccount) => void;
     checkoutRoute: boolean;
@@ -514,14 +596,24 @@ function ReviewPanel({
     const {
         register,
         getValues,
-        formState: { errors },
+        formState: { errors, isSubmitted },
     } = useFormContext<OrderFormInput>();
+    const [phoneCheckoutSelected, setPhoneCheckoutSelected] = useState(false);
+    useEffect(() => {
+        if (account) setPhoneCheckoutSelected(true);
+    }, [account]);
+    useEffect(() => {
+        if (phoneCheckoutSelected) document.getElementById('customer-name')?.focus();
+    }, [phoneCheckoutSelected]);
     const values = getValues();
     // With a Turnstile site key configured the submit button waits for a fresh token, so the
     // server always sees a single-use token; without a key (dev/tests) the check is skipped.
     const turnstileReady = !turnstileSiteKey || Boolean(turnstileToken);
     const fishLabel = fishOptions.find((option) => option.value === values.fish_type)?.label ?? 'Not selected';
     const size = catalog?.size_classes.find((item) => item.slug === values.size);
+    const estimatedTotal = size?.indicative_price_per_kg_kobo != null && Number.isInteger(values.quantity_kg)
+        ? values.quantity_kg * size.indicative_price_per_kg_kobo
+        : null;
     const selectedTime = catalog?.settings.time_slots.find((slot) => slot.key === values.time_slot)?.label ?? values.time_slot;
     const summaryRows = [
         ['Fish type', fishLabel],
@@ -533,6 +625,7 @@ function ReviewPanel({
         ['Delivery address', values.fulfilment === 'delivery' ? values.delivery_address || 'Not provided' : 'Not applicable'],
         ['Notes', values.notes?.trim() || 'None'],
     ];
+    const showDetails = !checkoutRoute || phoneCheckoutSelected || Boolean(account);
 
     return (
         <section aria-labelledby="review-heading" className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
@@ -549,53 +642,82 @@ function ReviewPanel({
                         </div>
                     ))}
                 </dl>
+                <section className="mt-5 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-3" aria-label="Indicative price estimate">
+                    {estimatedTotal !== null ? (
+                        <>
+                            <p className="font-semibold text-brand-900">Estimated total: {formatKobo(estimatedTotal)}</p>
+                            <p className="mt-1 text-sm text-ink-muted">Estimate only. Excludes delivery. The farm confirms your final price.</p>
+                            {size?.price_updated_at ? <p className="mt-1 text-xs text-ink-muted">Price as of {formatPriceUpdatedAt(size.price_updated_at)}</p> : null}
+                        </>
+                    ) : <p className="text-sm font-semibold text-ink-muted">Price on request</p>}
+                </section>
 
-                {checkoutRoute ? (
+                {checkoutRoute && (!phoneCheckoutSelected || account) ? (
                     <div className="mt-6">
-                        <SignInChoice next="/checkout" account={account} onAccountChange={onAccountChange} />
+                        <SignInChoice
+                            next="/checkout"
+                            account={account}
+                            onAccountChange={onAccountChange}
+                            showPhoneOption={!phoneCheckoutSelected}
+                            onPhoneCheckout={() => setPhoneCheckoutSelected(true)}
+                        />
                     </div>
                 ) : null}
 
-                <section className="mt-7" aria-labelledby="details-heading">
-                    <h3 id="details-heading" className="font-display text-xl font-bold text-ink">Your details</h3>
-                    <p className="mt-1 text-sm text-ink-muted">The farm will use these details to confirm availability and send your quote.</p>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                        <div className="sm:col-span-2">
-                            <label htmlFor="customer-name" className="block text-sm font-semibold text-ink">Full name</label>
-                            <input id="customer-name" autoComplete="name" readOnly={Boolean(account)} aria-invalid={Boolean(errors.customer_name)} aria-describedby={errors.customer_name ? 'customer-name-error' : undefined} {...register('customer_name')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="Your full name" />
-                            <FieldError id="customer-name-error" message={errors.customer_name?.message} />
-                        </div>
-                        <div>
-                            <label htmlFor="customer-phone" className="block text-sm font-semibold text-ink">WhatsApp / phone number</label>
-                            <input id="customer-phone" type="tel" inputMode="tel" autoComplete="tel" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'customer-phone-error' : 'phone-hint'} {...register('phone')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="+234 801 234 5678" />
-                            <p id="phone-hint" className="mt-2 text-xs text-ink-muted">Nigerian numbers accepted, including 0801… or +234…</p>
-                            <FieldError id="customer-phone-error" message={errors.phone?.message} />
-                        </div>
-                        <div>
-                            <label htmlFor="customer-email" className="block text-sm font-semibold text-ink">Email {account ? <span className="font-normal text-ink-muted">(from your Google account)</span> : <span className="font-normal text-ink-muted">(optional)</span>}</label>
-                            <input id="customer-email" type="email" autoComplete="email" readOnly={Boolean(account)} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'customer-email-error' : undefined} {...register('email')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="you@example.com" />
-                            <FieldError id="customer-email-error" message={errors.email?.message} />
-                        </div>
-                    </div>
-                </section>
+                {showDetails ? (
+                    <>
+                        <section className="mt-7" aria-labelledby="details-heading">
+                            <h3 id="details-heading" className="font-display text-xl font-bold text-ink">Your details</h3>
+                            <p className="mt-1 text-sm text-ink-muted">The farm will use these details to confirm availability and send your quote.</p>
+                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="customer-name" className="block text-sm font-semibold text-ink">Full name</label>
+                                    <input id="customer-name" autoComplete="name" readOnly={Boolean(account)} aria-invalid={Boolean(errors.customer_name)} aria-describedby={errors.customer_name ? 'customer-name-error' : undefined} {...register('customer_name')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="Your full name" />
+                                    <FieldError id="customer-name-error" message={errors.customer_name?.message} />
+                                </div>
+                                <div>
+                                    <label htmlFor="customer-phone" className="block text-sm font-semibold text-ink">WhatsApp / phone number</label>
+                                    <input id="customer-phone" type="tel" inputMode="tel" autoComplete="tel" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'customer-phone-error' : 'phone-hint'} {...register('phone')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="+234 801 234 5678" />
+                                    <p id="phone-hint" className="mt-2 text-xs text-ink-muted">Nigerian numbers accepted, including 0801… or +234…</p>
+                                    <FieldError id="customer-phone-error" message={errors.phone?.message} />
+                                </div>
+                                <div>
+                                    <label htmlFor="customer-email" className="block text-sm font-semibold text-ink">Email {account ? <span className="font-normal text-ink-muted">(from your Google account)</span> : <span className="font-normal text-ink-muted">(optional)</span>}</label>
+                                    <input id="customer-email" type="email" autoComplete="email" readOnly={Boolean(account)} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'customer-email-error' : undefined} {...register('email')} className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]" placeholder="you@example.com" />
+                                    <FieldError id="customer-email-error" message={errors.email?.message} />
+                                </div>
+                            </div>
+                        </section>
 
-                <div className="mt-6 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-4 text-sm leading-6 text-brand-900">
-                    We’ll check the farm, confirm the available size/quantity and give you the current price. <strong>You haven’t been charged.</strong>
-                </div>
-                {error ? <p role="alert" className="mt-5 flex items-start gap-2 border border-status-error/30 bg-status-error/5 p-4 text-sm text-status-error"><CircleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={18} />{error}</p> : null}
-                <form onSubmit={onSubmit} className="mt-6">
-                    <HoneypotField value={honeypotValue} onChange={onHoneypotChange} />
-                    <TurnstileWidget onToken={onTurnstileToken} />
-                    <button type="submit" disabled={pending || !idempotencyKey || !turnstileReady} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:cursor-wait disabled:opacity-60 sm:w-auto">
-                        {pending ? <LoaderCircle aria-hidden="true" className="mr-2 animate-spin motion-reduce:animate-none" size={18} /> : null}
-                        {pending ? 'Sending request…' : 'Submit Order Request'}
-                    </button>
-                    <p className="mt-3 max-w-xl text-xs leading-5 text-ink-muted">By submitting you agree we may contact you about this request via WhatsApp, phone or email. Read our <Link href="/privacy" className="font-semibold underline underline-offset-2">Privacy Policy</Link>.</p>
-                </form>
+                        <div className="mt-6 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-4 text-sm leading-6 text-brand-900">
+                            We’ll check the farm, confirm the available size/quantity and give you the current price. <strong>You haven’t been charged.</strong>
+                        </div>
+                        {error ? <p role="alert" className="mt-5 flex items-start gap-2 border border-status-error/30 bg-status-error/5 p-4 text-sm text-status-error"><CircleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={18} />{error}</p> : null}
+                        <form onSubmit={onSubmit} className="mt-6">
+                            <HoneypotField value={honeypotValue} onChange={onHoneypotChange} />
+                            <TurnstileWidget onToken={onTurnstileToken} onStatus={onTurnstileStatus} retryCount={turnstileRetryCount} />
+                            <button type="submit" disabled={pending || !idempotencyKey || !turnstileReady} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:cursor-wait disabled:opacity-60 sm:w-auto">
+                                {pending ? <LoaderCircle aria-hidden="true" className="mr-2 animate-spin motion-reduce:animate-none" size={18} /> : null}
+                                {pending ? 'Sending request…' : 'Submit Order Request'}
+                            </button>
+                            {pending ? <p role="status" className="mt-3 text-sm text-ink-muted">Sending your request securely…</p> : null}
+                            {!pending && !idempotencyKey ? <p role="status" className="mt-3 text-sm text-ink-muted">Preparing your secure request…</p> : null}
+                            {!pending && idempotencyKey && !turnstileReady && turnstileStatus !== 'error' ? <p role="status" className="mt-3 text-sm text-ink-muted">Verifying you&apos;re human…</p> : null}
+                            {!turnstileReady && turnstileStatus === 'error' ? (
+                                <div role="alert" className="mt-3 border-l-4 border-status-error bg-status-error/5 p-4 text-sm text-status-error">
+                                    <p>We couldn&apos;t verify this request. Retry verification or send your request on WhatsApp.</p>
+                                    <div className="mt-3 flex flex-wrap gap-4">
+                                        <button type="button" onClick={onTurnstileRetry} className="font-semibold underline underline-offset-2">Retry verification</button>
+                                        <a href={fallbackHref} className="font-semibold underline underline-offset-2">Continue on WhatsApp</a>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {isSubmitted && Object.keys(errors).length > 0 ? <p role="status" className="mt-3 text-sm font-medium text-status-error">Complete the highlighted details before submitting.</p> : null}
+                            <p className="mt-3 max-w-xl text-xs leading-5 text-ink-muted">By submitting you agree we may contact you about this request via WhatsApp, phone or email. Read our <Link href="/privacy" className="font-semibold underline underline-offset-2">Privacy Policy</Link>.</p>
+                        </form>
+                    </>
+                ) : null}
                 <button type="button" onClick={onBack} className="mt-5 inline-flex min-h-11 items-center rounded-full border border-line-soft px-5 font-semibold text-ink"><ArrowLeft aria-hidden="true" className="mr-2" size={17} />Back to your order</button>
-            </div>
-            <div className="hidden lg:block">
-                <AvailabilitySidebar catalog={catalog} />
             </div>
         </section>
     );
@@ -606,24 +728,46 @@ export function SentPanel({ catalog, reference }: { catalog: Catalog | null; ref
     const whatsappDigits = catalog?.settings.whatsapp_number.replace(/\D/g, '');
     const whatsappText = `Hi, I just sent order request ${reference} and would like to follow up.`;
     const whatsappHref = whatsappDigits ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(whatsappText)}` : '/contact';
+    const [sentOrder, setSentOrder] = useState<TrackedOrder | null>(null);
+
+    useEffect(() => {
+        const token = readTrackedToken(reference);
+        if (!token) return;
+        let active = true;
+        void fetchTrackedOrder(reference, token)
+            .then((order) => { if (active) setSentOrder(order); })
+            .catch(() => undefined);
+        return () => { active = false; };
+    }, [reference]);
 
     return (
-        <section className="mx-auto max-w-2xl py-8 text-center" aria-labelledby="sent-heading">
-            <span className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--brand-100)] text-[color:var(--brand-700)]"><Check aria-hidden="true" size={30} /></span>
-            <p className="mt-5 text-xs font-bold uppercase tracking-[0.14em] text-brand-700">Confirmation</p>
-            <h2 id="sent-heading" className="mt-2 font-display text-3xl font-bold text-ink">Order Request Sent!</h2>
-            <p className="mx-auto mt-4 max-w-xl leading-7 text-ink-muted">Your request has been sent to the farm. We’ll check availability and get back to you with the current price and final details.</p>
-            <div className="mx-auto mt-7 max-w-sm border-y border-line-soft py-5">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Order Reference</p>
-                <p className="mt-2 font-display text-2xl font-bold text-brand-900">#{reference}</p>
-                <p className="mt-1 text-sm text-ink-muted">Keep this number for reference.</p>
-            </div>
-            <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-                <Link href="/" className="inline-flex min-h-11 items-center justify-center rounded-full border border-line-soft px-5 font-semibold text-ink">Back to Home</Link>
-                <a href={whatsappHref} className="inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--whatsapp)] px-5 font-semibold text-white"><MessageCircle aria-hidden="true" className="mr-2" size={17} />Chat on WhatsApp</a>
-            </div>
-            {phone ? <p className="mt-7 text-sm text-ink-muted">Need urgent help? <a className="inline-flex items-center font-semibold text-[color:var(--brand-700)]" href={`tel:${phone.replace(/[^+\d]/g, '')}`}><Phone aria-hidden="true" className="mx-1" size={15} />Call the farm</a></p> : null}
-        </section>
+        <>
+            <div className="hidden lg:block"><Stepper activeStep={3} /></div>
+            <section className="mx-auto max-w-2xl py-8 text-center" aria-labelledby="sent-heading">
+                <span className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--brand-100)] text-[color:var(--brand-700)]"><Check aria-hidden="true" size={30} /></span>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.14em] text-brand-700">Confirmation</p>
+                <h2 id="sent-heading" className="mt-2 font-display text-3xl font-bold text-ink">Order Request Sent!</h2>
+                <p className="mx-auto mt-4 max-w-xl leading-7 text-ink-muted">Your request has been sent to the farm. We’ll check availability and get back to you with the current price and final details.</p>
+                <div className="mx-auto mt-5 max-w-sm border-y border-line-soft py-4">
+                    {sentOrder?.indicative_total_kobo != null ? (
+                        <>
+                            <p className="font-semibold text-brand-900">Estimated total: {formatKobo(sentOrder.indicative_total_kobo)}</p>
+                            <p className="mt-1 text-sm text-ink-muted">Estimate only. Excludes delivery. The farm confirms your final price.</p>
+                        </>
+                    ) : <p className="text-sm font-semibold text-ink-muted">Price on request</p>}
+                </div>
+                <div className="mx-auto mt-7 max-w-sm border-y border-line-soft py-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Order Reference</p>
+                    <p className="mt-2 font-display text-2xl font-bold text-brand-900">#{reference}</p>
+                    <p className="mt-1 text-sm text-ink-muted">Keep this number for reference.</p>
+                </div>
+                <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+                    <Link href="/" className="inline-flex min-h-11 items-center justify-center rounded-full border border-line-soft px-5 font-semibold text-ink">Back to Home</Link>
+                    <a href={whatsappHref} className="inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--whatsapp)] px-5 font-semibold text-white"><MessageCircle aria-hidden="true" className="mr-2" size={17} />Chat on WhatsApp</a>
+                </div>
+                {phone ? <p className="mt-7 text-sm text-ink-muted">Need urgent help? <a className="inline-flex items-center font-semibold text-[color:var(--brand-700)]" href={`tel:${phone.replace(/[^+\d]/g, '')}`}><Phone aria-hidden="true" className="mx-1" size={15} />Call the farm</a></p> : null}
+            </section>
+        </>
     );
 }
 
@@ -641,11 +785,13 @@ function hasCheckoutDraft(draft: Partial<OrderFormInput>): boolean {
 export function OrderFlow({
     catalog,
     initialSize,
+    initialFishType,
     initialIntent,
     mode = 'full',
 }: {
     catalog: Catalog | null;
     initialSize: string | null;
+    initialFishType: string | null;
     initialIntent: string | null;
     /**
      * 'full' renders the whole flow on one page (SPEC §5.2 desktop);
@@ -697,6 +843,8 @@ export function OrderFlow({
     const [reference, setReference] = useState<string | null>(null);
     const [honeypotValue, setHoneypotValue] = useState('');
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [turnstileStatus, setTurnstileStatus] = useState<TurnstileStatus>(turnstileSiteKey ? 'verifying' : 'disabled');
+    const [turnstileRetryCount, setTurnstileRetryCount] = useState(0);
     const [account, setAccount] = useState<SignedInAccount>(null);
     const [checkoutReady, setCheckoutReady] = useState(mode !== 'review');
     const router = useRouter();
@@ -707,7 +855,13 @@ export function OrderFlow({
     const hydratedPresetApplied = useRef(false);
 
     useEffect(() => {
-        void useOrderDraftStore.persist.rehydrate();
+        try {
+            void Promise.resolve(useOrderDraftStore.persist.rehydrate())
+                .catch(() => undefined)
+                .finally(() => useOrderDraftStore.getState().setHasHydrated(true));
+        } catch {
+            useOrderDraftStore.getState().setHasHydrated(true);
+        }
     }, []);
 
     useEffect(() => {
@@ -740,10 +894,7 @@ export function OrderFlow({
             return;
         }
         if (storedProgress.reviewOpen) {
-            setView('review');
-            const restoredKey = storedProgress.idempotencyKey ?? crypto.randomUUID();
-            setIdempotencyKey(restoredKey);
-            setStoredIdempotencyKey(restoredKey);
+            routerRef.current.replace('/checkout');
         }
     }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen]);
 
@@ -770,6 +921,9 @@ export function OrderFlow({
         if (requestedIntent && !useOrderDraftStore.getState().sourceIntent) {
             setSourceIntent(requestedIntent);
         }
+        if (initialFishType && !currentDraft.fish_type && fishOptions.some((option) => option.value === initialFishType)) {
+            form.setValue('fish_type', initialFishType as OrderFormInput['fish_type'], { shouldDirty: false });
+        }
         if (initialSize && !currentDraft.size && selectableSizeSlugs?.includes(initialSize)) {
             form.setValue('size', initialSize, { shouldDirty: false });
         }
@@ -782,7 +936,7 @@ export function OrderFlow({
             const smokingSize = catalog?.size_classes.find((size) => size.is_smoking_size && selectableSizeSlugs?.includes(size.slug));
             if (smokingSize) form.setValue('size', smokingSize.slug, { shouldDirty: false });
         }
-    }, [catalog, form, hasHydrated, initialIntent, initialSize, selectableSizeSlugs, setSourceIntent]);
+    }, [catalog, form, hasHydrated, initialFishType, initialIntent, initialSize, selectableSizeSlugs, setSourceIntent]);
 
     async function openReview() {
         for (const field of orderQuestionFields) {
@@ -807,7 +961,7 @@ export function OrderFlow({
         setIdempotencyKey(requestKey);
         setStoredIdempotencyKey(requestKey);
         setStoredReviewOpen(true);
-        setView('review');
+        routerRef.current.push('/checkout');
         return true;
     }
 
@@ -847,6 +1001,9 @@ export function OrderFlow({
     function returnToOrderFromReview() {
         if (mode === 'review') {
             // On /checkout the form lives on another route; the draft stays persisted there.
+            setStoredReviewOpen(false);
+            setMobileStep(5);
+            setStoredMobileStep(5);
             routerRef.current.push('/order');
             return;
         }
@@ -861,6 +1018,8 @@ export function OrderFlow({
         setSubmissionError(null);
         const requestKey = idempotencyKey ?? crypto.randomUUID();
         setIdempotencyKey(requestKey);
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 20_000);
         const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
         const requestValues = { ...values };
         delete requestValues.custom_quantity_kg;
@@ -872,6 +1031,7 @@ export function OrderFlow({
                     'Content-Type': 'application/json',
                     'Idempotency-Key': requestKey,
                 },
+                signal: controller.signal,
                 body: JSON.stringify({
                     ...requestValues,
                     source_intent: sourceIntent,
@@ -920,6 +1080,11 @@ export function OrderFlow({
                     return;
                 }
 
+                if (response.status >= 500) {
+                    setSubmissionError('The farm’s server is temporarily unavailable. Your details are saved; retry shortly or send your request on WhatsApp.');
+                    return;
+                }
+
                 setSubmissionError(errorMessage);
                 return;
             }
@@ -929,6 +1094,7 @@ export function OrderFlow({
                 return;
             }
             setReference(parsedResponse.data.reference);
+            rememberTrackedOrder(parsedResponse.data.reference, parsedResponse.data.access_token);
             clearDraft();
             if (mode === 'review') {
                 // Addendum §A1: confirmation lives on its own route so a refresh cannot resubmit.
@@ -937,8 +1103,11 @@ export function OrderFlow({
             }
             setView('sent');
         } catch {
-            setSubmissionError('We could not reach the farm right now. Your details are saved on this device; retry or send them on WhatsApp.');
+            setSubmissionError(controller.signal.aborted
+                ? 'The request took too long. Your details are saved on this device; retry or send them on WhatsApp.'
+                : 'We could not reach the farm right now. Your details are saved on this device; retry or send them on WhatsApp.');
         } finally {
+            window.clearTimeout(timeout);
             setPending(false);
         }
     }
@@ -962,7 +1131,7 @@ export function OrderFlow({
         <FormProvider {...form}>
             <div className="mt-7 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="min-w-0">
-                    <div className="hidden lg:block"><Stepper activeStep={view === 'order' ? 1 : view === 'review' ? 2 : 3} /></div>
+                    <div className="hidden lg:block"><Stepper activeStep={view === 'sent' ? 3 : mode === 'review' ? 2 : 1} /></div>
                     <DotProgress activeStep={view === 'review' || view === 'sent' ? 6 : mobileStep} />
                     {view === 'order' ? (
                         <form onSubmit={(event) => event.preventDefault()} noValidate>
@@ -976,7 +1145,7 @@ export function OrderFlow({
                             />
                         </form>
                     ) : null}
-                    {view === 'review' ? (
+                    {view === 'review' && mode === 'review' ? (
                         <ReviewPanel
                             catalog={catalog}
                             onBack={returnToOrderFromReview}
@@ -987,7 +1156,12 @@ export function OrderFlow({
                             honeypotValue={honeypotValue}
                             onHoneypotChange={setHoneypotValue}
                             turnstileToken={turnstileToken}
+                            turnstileRetryCount={turnstileRetryCount}
                             onTurnstileToken={setTurnstileToken}
+                            turnstileStatus={turnstileStatus}
+                            onTurnstileStatus={setTurnstileStatus}
+                            onTurnstileRetry={() => setTurnstileRetryCount((count) => count + 1)}
+                            fallbackHref={fallbackHref}
                             account={account}
                             onAccountChange={setAccount}
                             checkoutRoute={mode === 'review'}

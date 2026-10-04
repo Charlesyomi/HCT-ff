@@ -11,8 +11,10 @@ export const metadata: Metadata = {
     description: 'Learn about our family farm and how we raise healthy catfish.',
 };
 
+export const revalidate = 60;
+
 const farmSections = [
-    ['How we raise our fish', 'Healthy fish start with calm handling, so we plan every harvest and pickup around keeping the fish as stress-free as possible. Pond type: we currently raise our fish in concrete and tarpaulin ponds, building on our earlier experience with earthen ponds. Feeding: our fish are fed healthy commercial fish pellets, including feeds from established manufacturers, typically twice a day. Fingerlings: we source our fingerlings from reputable suppliers to give each production cycle a healthy start. Water: our ponds are supplied with clean borehole water, with water changes carried out regularly-typically every two days-to maintain suitable pond conditions. Before harvest: we stop feeding the fish one day before harvest.'],
+    ['How we raise our fish', 'Healthy fish start with calm handling, so we plan every harvest and pickup around keeping the fish as stress-free as possible. Pond type: we currently raise our fish in concrete and tarpaulin ponds, building on our earlier experience with earthen ponds. Feeding: our fish are fed healthy commercial fish pellets, including feeds from established manufacturers, typically twice a day. Fingerlings: we source our fingerlings from reputable suppliers to give each production cycle a healthy start. Water: our ponds are supplied with clean borehole water, with water changes carried out regularly—typically every two days—to maintain suitable pond conditions. Before harvest: we stop feeding the fish one day before harvest. This helps us prepare the fish for collection while keeping the harvest process clean and manageable.'],
     ['Harvest cadence', 'We harvest roughly every six months. When a harvest window is confirmed, it appears on this site. Send us a request any time and we will tell you when your size is ready.'],
     ['Pickup', 'Collect your fish at the farm at the time we agree and we will have it ready for you. Fish are fragile and stress is their biggest enemy, so we hold your fish for about two hours after the agreed time; after that they go back to the pond so they stay healthy. Farm pickup is available Monday to Sunday, from 8:00 AM to 6:00 PM. Your fish are weighed at the farm before collection, so you can see exactly what you are purchasing. Customers should come with a suitable container or vessel for carrying their fish. For larger orders or special collection arrangements, please contact us ahead of time so we can prepare your order.'],
     ['Delivery', 'We transport live fish in large containers with sufficient water for the journey, taking care to maintain suitable conditions during transportation. Our goal is to get your fish to you safely and in good condition. Contact us on 09019871421 to ask about delivery to your area and get a quote.'],
@@ -34,7 +36,7 @@ export default async function AboutPage() {
                         <p>
                             Adesoba Catfish Farm is a family-run catfish farm in Ado Ekiti, Ekiti
                             State. We stock our ponds, give the fish about six months to grow, and
-                            harvest when they are ready: mostly 2-3kg table-size catfish, with smaller
+                            harvest when they are ready: mostly 2–3kg table-size catfish, with smaller
                             smoking and BBQ sizes when we have them.
                         </p>
                         <p>

@@ -292,6 +292,7 @@ def create_order(
         .order_by(col(HarvestWindow.starts_on))
     ).first()
 
+    indicative_unit_price_kobo: int | None = None
     if active_harvest_window is not None:
         availability_rec = session.exec(
             select(Availability).where(
@@ -304,6 +305,8 @@ def create_order(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Fish size '{size_class.label}' is currently unavailable for this harvest window.",
             )
+        if availability_rec is not None:
+            indicative_unit_price_kobo = availability_rec.indicative_price_per_kg_kobo
 
     # 6. Time slot validation
     valid_slot_map = time_slot_labels(settings_map)
@@ -325,9 +328,7 @@ def create_order(
 
     # 8. Customer upsert
     now_utc = datetime.now(UTC)
-    customer = session.exec(
-        select(Customer).where(Customer.phone_e164 == phone_e164)
-    ).first()
+    customer = session.exec(select(Customer).where(Customer.phone_e164 == phone_e164)).first()
     if customer is None:
         customer = Customer(
             name=request.customer_name.strip(),
@@ -365,13 +366,23 @@ def create_order(
         size_class_id=size_class.id,
         size_label_snapshot=size_class.label,
         quantity_kg=request.quantity_kg,
+        indicative_unit_price_kobo=indicative_unit_price_kobo,
+        indicative_total_kobo=(
+            request.quantity_kg * indicative_unit_price_kobo
+            if indicative_unit_price_kobo is not None
+            else None
+        ),
         is_bulk=(request.quantity_kg >= 1000),
         preferred_date=request.preferred_date,
         time_slot_key=request.time_slot,
         time_slot_label=time_slot_label,
         fulfilment=request.fulfilment,
-        delivery_address=(request.delivery_address or "").strip() if request.fulfilment == "delivery" else None,
-        delivery_landmark=(request.delivery_landmark or "").strip() if request.fulfilment == "delivery" else None,
+        delivery_address=(request.delivery_address or "").strip()
+        if request.fulfilment == "delivery"
+        else None,
+        delivery_landmark=(request.delivery_landmark or "").strip()
+        if request.fulfilment == "delivery"
+        else None,
         notes=clean_notes(request.notes),
         source_intent=request.source_intent,
         idempotency_key=idempotency_key,

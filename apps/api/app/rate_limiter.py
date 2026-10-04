@@ -49,7 +49,7 @@ def get_client_ip(request: Request) -> str:
 
     if peer_address.is_private or peer_address.is_loopback:
         forwarded = request.headers.get("x-forwarded-for", "")
-        for value in reversed(forwarded.split(",")):
+        for value in forwarded.split(","):
             candidate = value.strip()
             try:
                 address = ip_address(candidate)

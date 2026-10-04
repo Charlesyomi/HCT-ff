@@ -143,7 +143,7 @@ async function HomeContent() {
 
                     {catalog && catalog.size_classes.length > 0 ? (
                         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} />)}
+                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} whatsappNumber={catalog.settings.whatsapp_number} />)}
                         </div>
                     ) : (
                         <div className="flex flex-col items-start gap-4 border-y border-line-soft py-8 sm:flex-row sm:items-center sm:justify-between">
@@ -185,7 +185,7 @@ async function HomeContent() {
                             <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-100">Why Choose Us</p>
                             <h2 className="mt-3 max-w-lg font-display text-3xl font-bold">Healthy Fish. Better Business.</h2>
                             <p className="mt-4 max-w-xl leading-7 text-ink-hero">
-                                We work directly with you to find the right fish size and quantity for your household, shop or business. We confirm availability and current pricing with you before anything is agreed.
+                                Indicative prices help you plan. We check availability and confirm your final price before anything is agreed.
                             </p>
                             <ul className="mt-6 grid gap-3 text-sm text-ink-on-dark">
                                 <li className="border-l-2 border-line-accent pl-3">Carefully raised Clarias and Hybrid fish</li>

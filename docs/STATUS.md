@@ -58,7 +58,7 @@
 | 5 | **Tracking** | **Done** | `/my-orders` now loads real data: Active/Completed tabs, "Track an order" lookup by reference + phone (`POST /api/v1/orders/lookup`), device-token storage so returning visits refresh the order, order detail with masked phone, event history and customer cancel, plus the signed-in account list from `GET /api/v1/me/orders`; 4 new dashboard tests and 12 API tests cover the endpoints. |
 | 6 | **Admin** | **Backend done, UI missing** | Admin API complete: auth/CSRF/lockout, dashboard, order list+detail+export, status machine, quotes, payments, availability/harvest/settings/catalog, customers, messages, owner-only users, audit log, quote-expiry job (`apps/api/app/routers/admin.py`, `app/services/admin_service.py`). The `/api/v1/admin` screens themselves are still the static placeholder. |
 | 7 | **Hardening** | **Missing** | No Playwright e2e test suite, Lighthouse CI configurations, axe accessibility tests, Sentry tracking, rate-limiting enforcement, or production runbook content exist. |
-| 8 | **Launch prep** | **Missing** | Launch prep has not started; pages use placeholder copy (`[EDIT ME]`), placeholder SVGs, and orders cannot be placed end-to-end. |
+| 8 | **Launch prep** | **In progress** | Public copy and end-to-end order submission are implemented; production `site_settings`, real photography, domain/HTTPS, and owner launch checks still need verification. |
 
 ### Addendum 001 progress (applied on top of the milestones above)
 

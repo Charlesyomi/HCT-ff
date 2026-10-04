@@ -241,15 +241,13 @@ def catalog(response: Response, session: Session = Depends(get_session)) -> Cata
         .order_by(SIZE_CLASS_TABLE.c.sort_order)
     ).all()
 
-    availability_by_size: dict[str, str] = {}
+    availability_by_size: dict[str, Availability] = {}
     if harvest_window is not None:
         records = session.exec(
             select(Availability).where(Availability.harvest_window_id == harvest_window.id)
         ).all()
         availability_by_size = {
-            str(record.size_class_id): record.status
-            for record in records
-            if record.fish_type_id is None
+            str(record.size_class_id): record for record in records if record.fish_type_id is None
         }
 
     defaults: dict[str, object] = {
@@ -285,10 +283,19 @@ def catalog(response: Response, session: Session = Depends(get_session)) -> Cata
             is_featured=size.is_featured,
             is_smoking_size=size.is_smoking_size,
             sort_order=size.sort_order,
-            status=(
-                availability_by_size.get(str(size.id), "unavailable")
-                if harvest_window is not None
-                else "unavailable"
+            status=availability_by_size[str(size.id)].status
+            if str(size.id) in availability_by_size
+            else "unavailable",
+            indicative_price_per_kg_kobo=(
+                availability_by_size[str(size.id)].indicative_price_per_kg_kobo
+                if str(size.id) in availability_by_size
+                else None
+            ),
+            price_updated_at=(
+                availability_by_size[str(size.id)].price_updated_at
+                if str(size.id) in availability_by_size
+                and availability_by_size[str(size.id)].indicative_price_per_kg_kobo is not None
+                else None
             ),
         )
         for size in size_classes
@@ -351,18 +358,12 @@ def submit_order(
             detail="Idempotency-Key header is required.",
         )
     client_ip = get_client_ip(request)
-    # Sign-in is optional: a live session attaches the order to the account, and the
-    # REQUIRE_LOGIN_AT_CHECKOUT flag can turn it into a requirement for guest checkout.
+    # Sign-in is optional: a live session attaches the order to the account, but guests may always order.
     record = auth_service.current_session(session, request.cookies.get(SESSION_COOKIE_NAME))
     account_id: UUID | None = None
     if record is not None:
         account = session.exec(select(Account).where(Account.id == record.account_id)).first()
         account_id = account.id if account is not None else None
-    if settings.require_login_at_checkout and account_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sign in with Google to place an order.",
-        )
     order, access_token = create_order(
         session,
         payload,
@@ -379,6 +380,8 @@ def submit_order(
         access_token=access_token,
         status=order.status,
         submitted_at=submitted_at,
+        indicative_unit_price_kobo=order.indicative_unit_price_kobo,
+        indicative_total_kobo=order.indicative_total_kobo,
     )
 
 
@@ -404,6 +407,8 @@ def get_order_details(
         fish_type=order.fish_type,
         size_label=order.size_label_snapshot,
         quantity_kg=order.quantity_kg,
+        indicative_unit_price_kobo=order.indicative_unit_price_kobo,
+        indicative_total_kobo=order.indicative_total_kobo,
         is_bulk=order.is_bulk,
         preferred_date=order.preferred_date,
         time_slot_label=order.time_slot_label,
@@ -442,6 +447,8 @@ def lookup_order(
         fish_type=order.fish_type,
         size_label=order.size_label_snapshot,
         quantity_kg=order.quantity_kg,
+        indicative_unit_price_kobo=order.indicative_unit_price_kobo,
+        indicative_total_kobo=order.indicative_total_kobo,
         is_bulk=order.is_bulk,
         preferred_date=order.preferred_date,
         time_slot_label=order.time_slot_label,
@@ -638,6 +645,8 @@ def my_orders(request: Request, session: Session = Depends(get_session)) -> Acco
                 fish_type=order.fish_type,
                 size_label=order.size_label_snapshot,
                 quantity_kg=order.quantity_kg,
+                indicative_unit_price_kobo=order.indicative_unit_price_kobo,
+                indicative_total_kobo=order.indicative_total_kobo,
                 is_bulk=order.is_bulk,
                 preferred_date=order.preferred_date,
                 time_slot_label=order.time_slot_label,

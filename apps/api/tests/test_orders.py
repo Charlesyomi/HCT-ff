@@ -47,7 +47,7 @@ def test_client_ip_uses_forwarded_client_from_trusted_proxy_chain() -> None:
         }
     )
 
-    assert get_client_ip(request) == "8.8.8.8"
+    assert get_client_ip(request) == "1.1.1.1"
 
 
 def test_client_ip_ignores_forwarded_header_from_untrusted_peer() -> None:
@@ -102,7 +102,6 @@ def test_order_creation_returns_reference_token_and_pending_status(
     assert order.is_bulk is False
     assert order.version == 1
     assert order.harvest_window_id is not None
-    # The plaintext access token is never persisted, only its SHA-256 digest.
     assert body["access_token"] != order.access_token_hash
 
     events = stored_events(engine)
@@ -111,6 +110,85 @@ def test_order_creation_returns_reference_token_and_pending_status(
     assert events[0].from_status is None
     assert events[0].to_status == "pending"
     assert events[0].actor_type == "customer"
+
+
+def test_order_estimate_is_computed_from_availability_not_client_totals(
+    order_app: tuple[TestClient, Engine],
+    order_payload: Callable[..., dict[str, Any]],
+) -> None:
+    client, engine = order_app
+    with Session(engine) as session:
+        size = session.exec(select(SizeClass).where(SizeClass.slug == "2-3kg")).one()
+        availability = session.exec(
+            select(Availability).where(Availability.size_class_id == size.id)
+        ).one()
+        availability.indicative_price_per_kg_kobo = 12_500
+        availability.price_updated_at = datetime.now().astimezone()
+        session.add(availability)
+        session.commit()
+
+    response = post_order(
+        client,
+        order_payload(quantity_kg=200, indicative_unit_price_kobo=1, indicative_total_kobo=1),
+        "indicative-price-1",
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["indicative_unit_price_kobo"] == 12_500
+    assert response.json()["indicative_total_kobo"] == 2_500_000
+    with Session(engine) as session:
+        order = session.exec(
+            select(Order).where(Order.reference == response.json()["reference"])
+        ).one()
+    assert order.indicative_unit_price_kobo == 12_500
+    assert order.indicative_total_kobo == 2_500_000
+
+
+def test_guest_order_is_not_blocked_by_legacy_login_flag(
+    order_app: tuple[TestClient, Engine],
+    order_payload: Callable[..., dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = order_app
+    monkeypatch.setenv("REQUIRE_LOGIN_AT_CHECKOUT", "true")
+
+    response = post_order(client, order_payload(), "guest-always-allowed")
+
+    assert response.status_code == 201, response.text
+
+
+def test_order_detail_and_lookup_return_server_saved_indicative_estimate(
+    order_app: tuple[TestClient, Engine],
+    order_payload: Callable[..., dict[str, Any]],
+) -> None:
+    client, engine = order_app
+    with Session(engine) as session:
+        size = session.exec(select(SizeClass).where(SizeClass.slug == "2-3kg")).one()
+        availability = session.exec(
+            select(Availability).where(Availability.size_class_id == size.id)
+        ).one()
+        availability.indicative_price_per_kg_kobo = 12_500
+        session.add(availability)
+        session.commit()
+
+    created = post_order(client, order_payload(quantity_kg=200), "estimate-detail")
+    assert created.status_code == 201
+    reference = created.json()["reference"]
+    expected = {"indicative_unit_price_kobo": 12_500, "indicative_total_kobo": 2_500_000}
+
+    detail = client.get(
+        f"/api/v1/orders/{reference}",
+        headers={"X-Order-Token": created.json()["access_token"]},
+    )
+    assert detail.status_code == 200
+    assert {key: detail.json()[key] for key in expected} == expected
+
+    lookup = client.post(
+        "/api/v1/orders/lookup",
+        json={"reference": reference, "phone": "0801 234 5678"},
+    )
+    assert lookup.status_code == 200
+    assert {key: lookup.json()["order"][key] for key in expected} == expected
 
 
 def test_reference_sequence_increments_per_submission(

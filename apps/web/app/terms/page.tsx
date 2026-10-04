@@ -8,6 +8,8 @@ export const metadata: Metadata = {
     description: 'Terms for requesting a catfish quote from Adesoba Catfish Farm.',
 };
 
+export const revalidate = 60;
+
 export default function TermsPage() {
     return (
         <>

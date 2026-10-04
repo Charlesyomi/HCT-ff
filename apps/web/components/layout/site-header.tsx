@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Fish, Menu, MessageCircle, Phone } from 'lucide-react';
 import { getCatalog } from '@/lib/catalog-api';
+import { AccountNav } from './account-nav';
 
 const links = [
     { label: 'Home', href: '/' },
@@ -38,9 +39,11 @@ export async function SiteHeader() {
                             {link.label}
                         </Link>
                     ))}
+                    <Link href="/my-orders" className="transition hover:text-[color:var(--brand-700)]">My Orders</Link>
                 </nav>
 
                 <div className="flex items-center gap-3">
+                    <div className="hidden lg:block"><AccountNav /></div>
                     <details className="relative lg:hidden">
                         <summary aria-label="Open navigation menu" className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full border border-line-soft text-ink">
                             <Menu aria-hidden="true" size={20} />

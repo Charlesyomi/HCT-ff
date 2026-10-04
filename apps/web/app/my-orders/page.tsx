@@ -10,6 +10,8 @@ export const metadata: Metadata = {
     robots: { index: false, follow: false },
 };
 
+export const revalidate = 60;
+
 export default function MyOrdersPage() {
     return (
         <>

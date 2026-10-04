@@ -8,6 +8,8 @@ export const metadata: Metadata = {
     description: 'How Adesoba Catfish Farm collects and uses information for order requests.',
 };
 
+export const revalidate = 60;
+
 export default function PrivacyPage() {
     return (
         <>

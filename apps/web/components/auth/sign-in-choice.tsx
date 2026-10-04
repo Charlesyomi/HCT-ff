@@ -8,17 +8,18 @@ type Props = {
     next: string;
     account: SignedInAccount;
     onAccountChange: (account: SignedInAccount) => void;
+    onPhoneCheckout?: () => void;
     /** When false the phone form is already visible, so the two options collapse. */
     showPhoneOption?: boolean;
 };
 
-const googleEnabled = Boolean(process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED);
+const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED === 'true';
 
 /**
  * Addendum §A4: two equal options at the top of checkout. Sign-in is optional and never
  * blocks the order; the phone path stays available when Google is unavailable.
  */
-export function SignInChoice({ next, account, onAccountChange, showPhoneOption = true }: Props) {
+export function SignInChoice({ next, account, onAccountChange, onPhoneCheckout, showPhoneOption = true }: Props) {
     const [starting, setStarting] = useState(false);
 
     const refreshAccount = useCallback(async () => {
@@ -74,9 +75,9 @@ export function SignInChoice({ next, account, onAccountChange, showPhoneOption =
                 {starting ? 'Opening Google…' : 'Continue with Google'}
             </button>
             {showPhoneOption ? (
-                <p className="inline-flex min-h-12 items-center justify-center rounded-full border border-line-strong px-5 font-semibold text-ink">
+                <button type="button" onClick={onPhoneCheckout} className="inline-flex min-h-12 items-center justify-center rounded-full border border-line-strong px-5 font-semibold text-ink">
                     Continue with phone number
-                </p>
+                </button>
             ) : null}
             {!googleEnabled ? (
                 <p className="text-xs text-ink-muted sm:col-span-2">

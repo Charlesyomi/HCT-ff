@@ -7,10 +7,17 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { SizeCard } from '@/components/catalog/size-card';
 import { getCatalog } from '@/lib/catalog-api';
 
+const fishCopy: Record<string, string> = {
+    clarias: 'The catfish everyone knows. Widely loved across Nigeria and easy to find. A dependable choice for family tables and businesses.',
+    hybrid: 'Fast-growing and made for volume. A strong choice for bulk orders and resellers.',
+};
+
 export const metadata: Metadata = {
     title: 'Our Fish | Adesoba',
     description: 'Learn about our Clarias and Hybrid catfish and the sizes we offer.',
 };
+
+export const revalidate = 60;
 
 export default async function OurFishPage() {
     const catalog = await getCatalog();
@@ -39,8 +46,8 @@ export default async function OurFishPage() {
                             </div>
                             <div>
                                 <h2 className="font-display text-2xl font-bold text-ink">{fish.name}</h2>
-                                <p className="mt-3 max-w-lg leading-7 text-ink-muted">{fish.description}</p>
-                                <Link href="/order" className="mt-5 inline-flex min-h-11 items-center rounded-full border border-[color:var(--brand-700)] px-5 font-semibold text-[color:var(--brand-700)] hover:bg-[color:var(--brand-100)]">
+                                <p className="mt-3 max-w-lg leading-7 text-ink-muted">{fishCopy[fish.slug] ?? fish.description}</p>
+                                <Link href={`/order?fish_type=${encodeURIComponent(fish.slug)}`} className="mt-5 inline-flex min-h-11 items-center rounded-full border border-[color:var(--brand-700)] px-5 font-semibold text-[color:var(--brand-700)] hover:bg-[color:var(--brand-100)]">
                                     Request this fish
                                 </Link>
                             </div>
@@ -59,9 +66,10 @@ export default async function OurFishPage() {
                         </div>
                         <Link href="/order" className="text-sm font-semibold text-[color:var(--brand-700)]">Ask about a size <span aria-hidden="true">→</span></Link>
                     </div>
+                    <p className="mt-4 max-w-2xl text-sm text-ink-muted">Not sure what to choose? Choose &ldquo;Either / no preference&rdquo; and tell us what you plan to do with the fish. We will recommend what is ready.</p>
                     {catalog && catalog.size_classes.length > 0 ? (
                         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} />)}
+                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} whatsappNumber={catalog.settings.whatsapp_number} />)}
                         </div>
                     ) : (
                         <p className="mt-6 border-y border-line-soft py-6 text-ink-muted">Live size availability is temporarily unavailable. Submit a request and the farm will confirm options.</p>

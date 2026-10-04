@@ -32,6 +32,7 @@ export async function SiteFooter() {
                     <ul className="mt-4 space-y-2 text-sm text-ink-on-dark">
                         {phone ? <li><a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Call us</a></li> : null}
                         {whatsappDigits ? <li><a href={`https://wa.me/${whatsappDigits}`}>WhatsApp</a></li> : null}
+                        {settings?.business_hours.map((hours) => <li key={hours}>{hours}</li>)}
                         <li>© {new Date().getFullYear()} Adesoba</li>
                     </ul>
                 </div>

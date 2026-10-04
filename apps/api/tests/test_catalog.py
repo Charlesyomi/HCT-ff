@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db import get_session
 from app.main import app
-from app.models import ContactMessage, HarvestWindow
+from app.models import Availability, ContactMessage, HarvestWindow, SizeClass
 from app.seed import seed_catalog
 
 
@@ -61,6 +62,30 @@ def test_catalog_returns_database_backed_public_data(
     assert payload["harvest_window"] is not None
     assert "internal_estimate_kg" not in response.text
     assert payload["settings"]["min_order_kg"] == 40
+    assert all(size["indicative_price_per_kg_kobo"] is None for size in payload["size_classes"])
+    assert all(size["price_updated_at"] is None for size in payload["size_classes"])
+
+
+def test_catalog_returns_per_size_indicative_prices_and_update_times(
+    catalog_app: tuple[TestClient, Engine],
+) -> None:
+    client, engine = catalog_app
+    with Session(engine) as session:
+        size = session.exec(select(SizeClass).where(SizeClass.slug == "2-3kg")).one()
+        availability = session.exec(
+            select(Availability).where(Availability.size_class_id == size.id)
+        ).one()
+        availability.indicative_price_per_kg_kobo = 125_000
+        availability.price_updated_at = datetime(2026, 10, 4, 9, 30, tzinfo=UTC)
+        session.add(availability)
+        session.commit()
+
+    response = client.get("/api/v1/catalog")
+    assert response.status_code == 200
+    sizes = {size["slug"]: size for size in response.json()["size_classes"]}
+    assert sizes["2-3kg"]["indicative_price_per_kg_kobo"] == 125_000
+    assert sizes["2-3kg"]["price_updated_at"].startswith("2026-10-04T09:30:00")
+    assert sizes["1-5-2kg"]["indicative_price_per_kg_kobo"] is None
 
 
 def test_catalog_returns_no_window_and_unavailable_sizes_without_a_published_window(
@@ -87,9 +112,10 @@ def test_catalog_does_not_expose_placeholder_farm_defaults(
     assert response.status_code == 200
 
     payload = response.json()
-    assert payload["settings"]["farm_address"] != "[EDIT ME] Farm address, Ogun State, Nigeria"
-    assert "[EDIT ME]" not in payload["settings"]["farm_address"]
-    assert "[TO CONFIRM" not in payload["settings"]["farm_address"]
+    assert (
+        payload["settings"]["farm_address"]
+        == "Ajebamidele, along Ikere Road, Ado-Ekiti, Ekiti State, Nigeria"
+    )
 
 
 def test_contact_submission_is_trimmed_and_persisted(

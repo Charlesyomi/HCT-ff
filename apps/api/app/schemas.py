@@ -29,6 +29,8 @@ class SizeClassPublic(BaseModel):
     is_smoking_size: bool
     sort_order: int
     status: str
+    indicative_price_per_kg_kobo: int | None
+    price_updated_at: datetime | None
 
 
 class HarvestWindowPublic(BaseModel):
@@ -119,6 +121,8 @@ class OrderCreateResponse(BaseModel):
     access_token: str
     status: str
     submitted_at: datetime
+    indicative_unit_price_kobo: int | None
+    indicative_total_kobo: int | None
 
 
 class OrderLookupRequest(BaseModel):
@@ -168,6 +172,8 @@ class OrderPublic(BaseModel):
     fish_type: str
     size_label: str
     quantity_kg: int
+    indicative_unit_price_kobo: int | None = None
+    indicative_total_kobo: int | None = None
     is_bulk: bool
     preferred_date: date
     time_slot_label: str
@@ -207,6 +213,8 @@ class AccountOrderItem(BaseModel):
     fish_type: str
     size_label: str
     quantity_kg: int
+    indicative_unit_price_kobo: int | None = None
+    indicative_total_kobo: int | None = None
     is_bulk: bool
     preferred_date: date
     time_slot_label: str
@@ -460,6 +468,7 @@ class AdminPaymentResponse(BaseModel):
     due_kobo: int
     balance_kobo: int
 
+
 class AdminHarvestWindowIn(BaseModel):
     starts_on: date
     ends_on: date
@@ -479,7 +488,17 @@ class AdminHarvestWindowOut(_UuidAsStrMixin):
 class AdminAvailabilityUpdate(BaseModel):
     """Bulk update every size for one harvest window in a single call (SPEC §8)."""
 
-    statuses: dict[str, Literal["limited", "available", "main_stock", "sold_out", "unavailable"]]
+    statuses: dict[
+        str, Literal["limited", "available", "main_stock", "sold_out", "unavailable"]
+    ] = Field(default_factory=dict)
+    indicative_prices_per_kg_kobo: dict[str, int | None] = Field(default_factory=dict)
+
+    @field_validator("indicative_prices_per_kg_kobo")
+    @classmethod
+    def validate_indicative_prices(cls, values: dict[str, int | None]) -> dict[str, int | None]:
+        if any(price is not None and price < 0 for price in values.values()):
+            raise ValueError("Indicative prices must be non-negative integer kobo values.")
+        return values
 
 
 class AdminSizeClassOut(_UuidAsStrMixin):
