@@ -45,7 +45,7 @@ const orderResponseSchema = z.object({ reference: z.string().min(1) });
 const errorResponseSchema = z.object({
     error: z.object({
         message: z.string(),
-        fields: z.record(z.array(z.string())).nullable().optional(),
+        fields: z.record(z.string(), z.array(z.string())).nullable().optional(),
     }),
 });
 
