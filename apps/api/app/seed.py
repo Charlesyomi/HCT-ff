@@ -23,14 +23,14 @@ FISH_TYPES = (
     (
         "clarias",
         "Clarias",
-        "Common and widely available. A reliable choice for homes and businesses.",
+        "The catfish everyone knows. Widely loved across Nigeria and easy to find. A dependable choice for family tables and businesses.",
         "/images/catfish-placeholder.svg",
         1,
     ),
     (
         "hybrid",
         "Hybrid",
-        "Fast growing, good for bulk orders.",
+        "Fast-growing and made for volume. A strong choice for bulk orders and resellers.",
         "/images/catfish-placeholder.svg",
         2,
     ),
@@ -53,9 +53,9 @@ AVAILABILITY_STATUSES = (
 SITE_SETTINGS: tuple[tuple[str, JsonValue], ...] = (
     ("whatsapp_number", "+2349019871421"),
     ("phone_number", "+2349019871421"),
-    ("farm_address", "Adesoba Catfish Farm, Ogun State, Nigeria"),
-    ("farm_maps_url", "https://maps.google.com/?q=Adesoba+Catfish+Farm+Ogun+State+Nigeria"),
-    ("business_hours", ["Mon–Sat, 8:00 AM–6:00 PM"]),
+    ("farm_address", "Ajebamidele, along Ikere Road, Ado-Ekiti, Ekiti State, Nigeria"),
+    ("farm_maps_url", None),
+    ("business_hours", ["Mon–Sun, 8:00 AM–6:00 PM"]),
     ("min_order_kg", 40),
     ("max_order_kg", 20000),
     ("min_lead_days", 1),
@@ -69,7 +69,10 @@ SITE_SETTINGS: tuple[tuple[str, JsonValue], ...] = (
             {"key": "4-6", "label": "4–6 PM"},
         ],
     ),
-    ("delivery_notice", "Delivery fee and service area are confirmed with each quote."),
+    (
+        "delivery_notice",
+        "Delivery is available within Ekiti State. The area and fee are confirmed with each quote.",
+    ),
     ("announcement_banner", None),
 )
 

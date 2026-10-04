@@ -253,11 +253,11 @@ def catalog(response: Response, session: Session = Depends(get_session)) -> Cata
         }
 
     defaults: dict[str, object] = {
-        "whatsapp_number": "+2348012345678",
-        "phone_number": "+2348012345678",
-        "farm_address": "Adesoba Catfish Farm, Ogun State, Nigeria",
-        "farm_maps_url": "https://maps.google.com/?q=Adesoba+Catfish+Farm+Ogun+State+Nigeria",
-        "business_hours": ["Mon–Sat, 8:00 AM–6:00 PM"],
+        "whatsapp_number": "+2349019871421",
+        "phone_number": "+2349019871421",
+        "farm_address": "Ajebamidele, along Ikere Road, Ado-Ekiti, Ekiti State, Nigeria",
+        "farm_maps_url": None,
+        "business_hours": ["Mon–Sun, 8:00 AM–6:00 PM"],
         "min_order_kg": 40,
         "max_order_kg": 20000,
         "min_lead_days": 1,
@@ -268,7 +268,7 @@ def catalog(response: Response, session: Session = Depends(get_session)) -> Cata
             {"key": "2-4", "label": "2–4 PM"},
             {"key": "4-6", "label": "4–6 PM"},
         ],
-        "delivery_notice": "Delivery fee and service area are confirmed with each quote.",
+        "delivery_notice": "Delivery is available within Ekiti State. The area and fee are confirmed with each quote.",
         "announcement_banner": None,
     }
     for setting in session.exec(select(SiteSetting)).all():

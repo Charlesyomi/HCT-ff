@@ -70,10 +70,10 @@ export default function PrivacyPage() {
                     <section>
                         <h2 className="font-display text-xl font-bold text-ink">Contact</h2>
                         <p className="mt-2">
-                            If you have questions about how your information is handled, or you want
-                            to request access to, correction of, or deletion of your personal
-                            information, please contact us using the contact details provided on this
-                            website and we will deal with your request.
+                            For privacy questions, or to ask us to see or delete the information we hold
+                            about you, email <a href="mailto:yomiadesoba@gmail.com" className="font-semibold underline underline-offset-2">yomiadesoba@gmail.com</a>. You can also
+                            use the contact details provided on this website, and we will deal with your
+                            request.
                         </p>
                     </section>
 
