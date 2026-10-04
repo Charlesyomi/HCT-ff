@@ -45,6 +45,8 @@ SESSION_TTL_DAYS = 30
 HTTP_TIMEOUT_SECONDS = 10.0
 # Mobile auth codes are single-use and short-lived; the app exchanges the code immediately.
 MOBILE_CODE_TTL_SECONDS = 120
+# Expo dev clients redirect through this scheme instead of a custom `adesoba://` scheme.
+EXPO_REDIRECT_PREFIX = "exp://"
 
 
 class AuthError(Exception):
@@ -141,12 +143,14 @@ def mobile_redirect_allowed(redirect_uri: str) -> bool:
             continue
         if candidate == redirect_uri:
             return True
-        if (
-            candidate.endswith("://")
-            and settings.app_env == "development"
-            and redirect_uri.startswith(candidate)
-        ):
-            return True
+        if candidate.endswith("://") and redirect_uri.startswith(candidate):
+            # Prefix entries (e.g. `exp://`) match in development, or anywhere once the
+            # explicit MOBILE_ALLOW_EXPO_REDIRECTS opt-in is set.
+            if (
+                settings.app_env == "development"
+                or (settings.mobile_allow_expo_redirects and candidate == EXPO_REDIRECT_PREFIX)
+            ):
+                return True
     return False
 
 

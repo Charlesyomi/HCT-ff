@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     # matched exactly (`adesoba://auth`); an entry ending in `://` (e.g. `exp://`) is treated as
     # a development-only prefix so Expo dev builds can be pointed at a local machine.
     mobile_redirect_allowlist: str = Field(default="", alias="MOBILE_REDIRECT_ALLOWLIST")
+    # Explicit opt-in that lets Expo (`exp://`) redirects match outside development too.
+    mobile_allow_expo_redirects: bool = Field(default=False, alias="MOBILE_ALLOW_EXPO_REDIRECTS")
 
     # Shared secret for the API -> Next.js on-demand revalidation webhook (SPEC §8).
     revalidate_secret: str | None = Field(default=None, alias="REVALIDATE_SECRET")

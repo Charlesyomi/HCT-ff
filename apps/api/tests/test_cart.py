@@ -2,15 +2,17 @@
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, select
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import Cart
 from app.schemas import CartLineInput, CartUpdateRequest
+from app.seed import seed_catalog
 from app.services import cart_service
 from tests.mobile_helpers import (
     auth_header,
@@ -37,6 +39,18 @@ def stored_cart(engine: Engine) -> Cart | None:
     with Session(engine) as session:
         carts = list(session.exec(select(Cart)).all())
         return carts[0] if carts else None
+
+
+def _file_backed_engine(database_path: Path) -> Engine:
+    """A seeded SQLite file database with one real connection per thread."""
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        seed_catalog(session)
+    return engine
 
 
 def test_empty_cart_is_version_zero_and_requires_authentication(
@@ -149,23 +163,30 @@ def test_put_cart_on_a_missing_cart_rejects_a_nonzero_expected_version(
     assert response.status_code == 409
 
 
-def test_concurrent_cart_updates_allow_exactly_one_winner(
-    bearer: tuple[TestClient, Engine, dict[str, str]],
-) -> None:
+def test_concurrent_cart_updates_allow_exactly_one_winner(tmp_path: Path) -> None:
     """
     Two writers both read version 1 and both try to write version 2.
 
     Concurrency race: without the conditional UPDATE the slower writer would silently
     clobber the faster one's cart. Prevention: the UPDATE is conditional on the expected
     version, so exactly one writer matches a row and the other is rejected.
+
+    This runs against a file-backed SQLite database because the shared in-memory
+    StaticPool hands every thread the *same* connection, which serialises the two
+    sessions and would make the race untestable (and the result arbitrary).
     """
-    client, engine, headers = bearer
-    client.put(
-        "/api/v1/me/cart",
-        json={"items": [cart_line("2-3kg", 100)], "expected_version": 0},
-        headers=headers,
-    )
+    engine = _file_backed_engine(tmp_path / "cart-race.db")
     account = seed_account(engine)
+    with Session(engine) as session:
+        cart_service.put_cart(
+            session,
+            account.id,
+            CartUpdateRequest(
+                items=[CartLineInput(fish_type="clarias", size="2-3kg", quantity_kg=100)],
+                expected_version=0,
+            ),
+        )
+
     barrier = threading.Barrier(2)
     outcomes: list[int] = []
 
@@ -191,13 +212,17 @@ def test_concurrent_cart_updates_allow_exactly_one_winner(
         except Exception as error:  # pragma: no cover - surfaces the real driver error
             pytest.fail(f"unexpected error: {error!r}")
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(writer, (120, 180)))
-
-    assert sorted(outcomes) == [200, 409]
-    cart = stored_cart(engine)
-    assert cart is not None
-    assert cart.version == 2
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(writer, (120, 180)))
+        assert sorted(outcomes) == [200, 409]
+        # The loser did not overwrite the winner, and the version advanced exactly once.
+        cart = stored_cart(engine)
+        assert cart is not None
+        assert cart.version == 2
+        assert cart.items[0]["quantity_kg"] in (120, 180)
+    finally:
+        engine.dispose()
 
 
 def test_delete_cart_empties_it_and_is_idempotent(

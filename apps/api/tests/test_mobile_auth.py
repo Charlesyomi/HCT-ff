@@ -117,6 +117,54 @@ def test_exp_prefix_is_only_a_development_convenience(
     assert development.status_code == 307
 
 
+@pytest.mark.parametrize("allow_expo", [False, True])
+def test_expo_redirect_outside_development_follows_the_explicit_flag(
+    order_app: tuple[TestClient, Engine],
+    monkeypatch: pytest.MonkeyPatch,
+    allow_expo: bool,
+) -> None:
+    """`MOBILE_ALLOW_EXPO_REDIRECTS` alone decides, with APP_ENV left at production."""
+    client, _engine = order_app
+    _verifier, challenge = generate_pkce_pair()
+    monkeypatch.setattr(settings, "mobile_redirect_allowlist", "adesoba://auth,exp://")
+    monkeypatch.setattr(settings, "mobile_allow_expo_redirects", allow_expo)
+
+    response = client.get(
+        "/api/v1/auth/google/start",
+        params={
+            "client": "mobile",
+            "redirect_uri": "exp://192.168.1.5:8081",
+            "code_challenge": challenge,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == (307 if allow_expo else 400)
+
+
+def test_the_expo_flag_does_not_enable_other_prefix_entries(
+    order_app: tuple[TestClient, Engine],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The opt-in is scoped to `exp://`; a non-Expo prefix entry still needs development."""
+    client, _engine = order_app
+    _verifier, challenge = generate_pkce_pair()
+    monkeypatch.setattr(settings, "mobile_redirect_allowlist", "myapp://")
+    monkeypatch.setattr(settings, "mobile_allow_expo_redirects", True)
+
+    response = client.get(
+        "/api/v1/auth/google/start",
+        params={
+            "client": "mobile",
+            "redirect_uri": "myapp://auth",
+            "code_challenge": challenge,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+
 def test_web_start_is_unaffected_by_the_mobile_parameters(
     order_app: tuple[TestClient, Engine],
 ) -> None:
