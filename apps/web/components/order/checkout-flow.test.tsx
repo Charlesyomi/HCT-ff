@@ -96,6 +96,16 @@ async function continueWithPhone() {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Your details' })).toBeInTheDocument());
 }
 
+/** Checkout requires the contact-consent tick before it will send anything. */
+function acceptConsent() {
+    fireEvent.click(screen.getByRole('checkbox', { name: /I agree the farm may contact me/ }));
+}
+
+function submitRequest() {
+    acceptConsent();
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
+}
+
 beforeEach(() => {
     push.mockReset();
     replace.mockReset();
@@ -167,7 +177,7 @@ describe('/checkout (Addendum §A1)', () => {
 
         fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Ada Okafor' } });
         fireEvent.change(screen.getByLabelText('WhatsApp / phone number'), { target: { value: '08012345678' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
+        submitRequest();
 
         await waitFor(() => expect(push).toHaveBeenCalledWith('/order/sent/AF-2026-0007'));
         const orderCall = vi
@@ -191,7 +201,7 @@ describe('/checkout (Addendum §A1)', () => {
         await continueWithPhone();
         fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Ada Okafor' } });
         fireEvent.change(screen.getByLabelText('WhatsApp / phone number'), { target: { value: '08012345678' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
+        submitRequest();
 
         expect(await screen.findByText('Enter a valid phone number.')).toBeInTheDocument();
         expect(screen.getByText('Please correct the highlighted details.')).toBeInTheDocument();
@@ -208,7 +218,7 @@ describe('/checkout (Addendum §A1)', () => {
         await continueWithPhone();
         fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Ada Okafor' } });
         fireEvent.change(screen.getByLabelText('WhatsApp / phone number'), { target: { value: '08012345678' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
+        submitRequest();
 
         expect(await screen.findByText(/Too many attempts\. Please wait a moment/)).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'Contact us on WhatsApp instead' })).toHaveAttribute('href', expect.stringContaining('https://wa.me/'));
@@ -225,7 +235,7 @@ describe('/checkout (Addendum §A1)', () => {
         await continueWithPhone();
         fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Ada Okafor' } });
         fireEvent.change(screen.getByLabelText('WhatsApp / phone number'), { target: { value: '08012345678' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Submit Order Request' }));
+        submitRequest();
 
         expect(await screen.findByText(/server is temporarily unavailable/)).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'Contact us on WhatsApp instead' })).toBeInTheDocument();

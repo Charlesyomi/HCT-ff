@@ -185,6 +185,34 @@ function FieldError({ id, message }: { id: string; message?: string }) {
     return <p id={id} role="alert" className="mt-2 text-sm font-medium text-status-error">{message}</p>;
 }
 
+/**
+ * Human labels for the order fields, used to name what is missing instead of showing a
+ * generic banner. Only fields that render an input are listed, so a validation error is
+ * never reported for something the customer cannot see or fix.
+ */
+const ORDER_FIELD_LABELS: Record<string, string> = {
+    customer_name: 'Full name',
+    phone: 'Phone number',
+    email: 'Email',
+    preferred_date: 'Preferred date',
+    time_slot: 'Preferred time slot',
+    fulfilment: 'Pickup or delivery',
+    delivery_address: 'Delivery address',
+    delivery_landmark: 'Landmark or directions',
+    notes: 'Notes',
+};
+
+/**
+ * Move focus to the first field the customer has to fix, so the error is visible.
+ * The inputs are not all inside the <form> element, so the whole panel is searched.
+ */
+function focusFirstInvalidField(): void {
+    if (typeof document === 'undefined') return;
+    const target = document.querySelector<HTMLElement>('[aria-invalid="true"]');
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target?.focus({ preventScroll: true });
+}
+
 function SectionHeading({ number, children }: { number: number; children: string }) {
     return (
         <div className="mb-4 flex items-center gap-3">
@@ -598,9 +626,15 @@ function ReviewPanel({
     const {
         register,
         getValues,
+        control,
+        setValue,
         formState: { errors, isSubmitted },
     } = useFormContext<OrderFormInput>();
     const [phoneCheckoutSelected, setPhoneCheckoutSelected] = useState(false);
+    const [consent, setConsent] = useState(false);
+    const [consentError, setConsentError] = useState(false);
+    const fulfilment = useWatch({ control, name: 'fulfilment' });
+    const notes = useWatch({ control, name: 'notes' }) ?? '';
     useEffect(() => {
         if (account) setPhoneCheckoutSelected(true);
     }, [account]);
@@ -611,16 +645,32 @@ function ReviewPanel({
     // With a Turnstile site key configured the submit button waits for a fresh token, so the
     // server always sees a single-use token; without a key (dev/tests) the check is skipped.
     const turnstileReady = !turnstileSiteKey || Boolean(turnstileToken);
-    const fishLabel = fishOptions.find((option) => option.value === values.fish_type)?.label ?? 'Not selected';
+    const fishLabelValue = fishOptions.find((option) => option.value === values.fish_type)?.label ?? 'Not selected';
     const size = catalog?.size_classes.find((item) => item.slug === values.size);
     const estimatedTotal = size?.indicative_price_per_kg_kobo != null && Number.isInteger(values.quantity_kg)
         ? values.quantity_kg * size.indicative_price_per_kg_kobo
         : null;
     const selectedTime = catalog?.settings.time_slots.find((slot) => slot.key === values.time_slot)?.label ?? values.time_slot;
+    const leadDays = catalog?.settings.min_lead_days ?? 1;
+    const timeSlots = catalog?.settings.time_slots ?? [];
+    // Only fields that render an input are named in the missing-fields list.
+    const missingFields = Object.keys(errors)
+        .filter((name) => ORDER_FIELD_LABELS[name])
+        .map((name) => ({ name, label: ORDER_FIELD_LABELS[name], message: errors[name as keyof typeof errors]?.message }));
+
+    function requestSubmit(event: React.FormEvent<HTMLFormElement>) {
+        if (!consent) {
+            event.preventDefault();
+            setConsentError(true);
+            const consentBox = document.getElementById('consent');
+            consentBox?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            consentBox?.focus();
+            return;
+        }
+        onSubmit(event);
+    }
+    // Fish, size and kg are the cart's job, so they are not repeated as read-only rows.
     const summaryRows = [
-        ['Fish type', fishLabel],
-        ['Size range', size?.label ?? 'Not selected'],
-        ['Quantity', values.quantity_kg ? `${values.quantity_kg.toLocaleString('en-NG')}kg` : 'Not selected'],
         ['Preferred date', values.preferred_date ? new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' }).format(new Date(`${values.preferred_date}T00:00:00+01:00`)) : 'Not selected'],
         ['Time', selectedTime || 'Not selected'],
         ['Pickup or delivery', values.fulfilment === 'delivery' ? 'Delivery' : 'Pickup'],
@@ -652,6 +702,102 @@ function ReviewPanel({
                             {size?.price_updated_at ? <p className="mt-1 text-xs text-ink-muted">Price as of {formatPriceUpdatedAt(size.price_updated_at)}</p> : null}
                         </>
                     ) : <p className="text-sm font-semibold text-ink-muted">Price on request</p>}
+                </section>
+
+                {/* Order-level fields live on checkout too, so a cart visitor can finish in
+                    one form instead of going back through the wizard. */}
+                <section className="mt-7" aria-labelledby="order-details-heading">
+                    <h3 id="order-details-heading" className="font-display text-xl font-bold text-ink">Order details</h3>
+                    <p className="mt-1 text-sm text-ink-muted">When you need it and how you would like it.</p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label htmlFor="checkout-preferred-date" className="block text-sm font-semibold text-ink">Preferred date</label>
+                            <input
+                                id="checkout-preferred-date"
+                                type="date"
+                                min={defaultPreferredDate(leadDays)}
+                                max={defaultPreferredDate(90)}
+                                aria-invalid={Boolean(errors.preferred_date)}
+                                aria-describedby={errors.preferred_date ? 'checkout-date-error' : undefined}
+                                {...register('preferred_date')}
+                                className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]"
+                            />
+                            <FieldError id="checkout-date-error" message={errors.preferred_date?.message} />
+                        </div>
+                        <div>
+                            <label htmlFor="checkout-time-slot" className="block text-sm font-semibold text-ink">Preferred time slot</label>
+                            <select
+                                id="checkout-time-slot"
+                                aria-invalid={Boolean(errors.time_slot)}
+                                aria-describedby={errors.time_slot ? 'checkout-time-slot-error' : undefined}
+                                {...register('time_slot')}
+                                className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-3 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]"
+                            >
+                                <option value="">Choose a time</option>
+                                {timeSlots.map((slot) => (
+                                    <option key={slot.key} value={slot.key}>{slot.label}</option>
+                                ))}
+                            </select>
+                            <FieldError id="checkout-time-slot-error" message={errors.time_slot?.message} />
+                        </div>
+                    </div>
+                    <fieldset className="mt-5">
+                        <legend className="text-sm font-semibold text-ink">Pickup or delivery</legend>
+                        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                            <label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-line-soft bg-canvas p-4 has-[:checked]:border-2 has-[:checked]:border-[color:var(--brand-700)] has-[:checked]:bg-[color:var(--brand-100)] focus-within:ring-2 focus-within:ring-[color:var(--brand-700)]">
+                                <input type="radio" value="pickup" {...register('fulfilment')} className="accent-[color:var(--brand-700)]" />
+                                <span><span className="block font-semibold text-ink">Pickup</span><span className="mt-1 block text-sm text-ink-muted">Collect from the farm.</span></span>
+                            </label>
+                            <label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-line-soft bg-canvas p-4 has-[:checked]:border-2 has-[:checked]:border-[color:var(--brand-700)] has-[:checked]:bg-[color:var(--brand-100)] focus-within:ring-2 focus-within:ring-[color:var(--brand-700)]">
+                                <input type="radio" value="delivery" {...register('fulfilment')} className="accent-[color:var(--brand-700)]" />
+                                <span><span className="block font-semibold text-ink">Delivery</span><span className="mt-1 block text-sm text-ink-muted">We’ll confirm the service area.</span></span>
+                            </label>
+                        </div>
+                        <FieldError id="checkout-fulfilment-error" message={errors.fulfilment?.message} />
+                    </fieldset>
+                    {fulfilment === 'delivery' ? (
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                                <label htmlFor="checkout-delivery-address" className="block text-sm font-semibold text-ink">Delivery address / area</label>
+                                <input
+                                    id="checkout-delivery-address"
+                                    autoComplete="street-address"
+                                    aria-invalid={Boolean(errors.delivery_address)}
+                                    aria-describedby={errors.delivery_address ? 'checkout-delivery-address-error' : undefined}
+                                    {...register('delivery_address')}
+                                    className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]"
+                                    placeholder="Street, area, town"
+                                />
+                                <FieldError id="checkout-delivery-address-error" message={errors.delivery_address?.message} />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <label htmlFor="checkout-delivery-landmark" className="block text-sm font-semibold text-ink">Landmark or extra directions <span className="font-normal text-ink-muted">(optional)</span></label>
+                                <input
+                                    id="checkout-delivery-landmark"
+                                    autoComplete="off"
+                                    aria-invalid={Boolean(errors.delivery_landmark)}
+                                    {...register('delivery_landmark')}
+                                    className="mt-2 min-h-12 w-full rounded-lg border border-line-strong bg-canvas px-4 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]"
+                                    placeholder="Nearby landmark or directions"
+                                />
+                                <FieldError id="checkout-delivery-landmark-error" message={errors.delivery_landmark?.message} />
+                            </div>
+                        </div>
+                    ) : null}
+                    <div className="mt-4">
+                        <label htmlFor="checkout-notes" className="block text-sm font-semibold text-ink">Notes <span className="font-normal text-ink-muted">(optional)</span></label>
+                        <textarea
+                            id="checkout-notes"
+                            rows={3}
+                            aria-invalid={Boolean(errors.notes)}
+                            aria-describedby={errors.notes ? 'checkout-notes-error' : undefined}
+                            {...register('notes')}
+                            className="mt-2 w-full rounded-lg border border-line-strong bg-canvas px-4 py-3 text-ink outline-none focus-visible:border-[color:var(--brand-700)] focus-visible:ring-2 focus-visible:ring-[color:var(--brand-100)]"
+                            placeholder="Anything the farm should know?"
+                        />
+                        <FieldError id="checkout-notes-error" message={errors.notes?.message} />
+                        {notes.length > 0 ? <p className="mt-1 text-xs text-ink-muted">{notes.length}/500 characters</p> : null}
+                    </div>
                 </section>
 
                 {checkoutRoute && (!phoneCheckoutSelected || account) ? (
@@ -695,7 +841,7 @@ function ReviewPanel({
                             We’ll check the farm, confirm the available size/quantity and give you the current price. <strong>You haven’t been charged.</strong>
                         </div>
                         {error ? <p role="alert" className="mt-5 flex items-start gap-2 border border-status-error/30 bg-status-error/5 p-4 text-sm text-status-error"><CircleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={18} />{error}</p> : null}
-                        <form onSubmit={onSubmit} className="mt-6">
+                        <form onSubmit={requestSubmit} className="mt-6">
                             <HoneypotField value={honeypotValue} onChange={onHoneypotChange} />
                             <TurnstileWidget onToken={onTurnstileToken} onStatus={onTurnstileStatus} retryCount={turnstileRetryCount} />
                             <button type="submit" disabled={pending || !idempotencyKey || !turnstileReady} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-6 font-semibold text-white hover:bg-[color:var(--brand-900)] disabled:cursor-wait disabled:opacity-60 sm:w-auto">
@@ -714,8 +860,33 @@ function ReviewPanel({
                                     </div>
                                 </div>
                             ) : null}
-                            {isSubmitted && Object.keys(errors).length > 0 ? <p role="status" className="mt-3 text-sm font-medium text-status-error">Complete the highlighted details before submitting.</p> : null}
-                            <p className="mt-3 max-w-xl text-xs leading-5 text-ink-muted">By submitting you agree we may contact you about this request via WhatsApp, phone or email. Read our <Link href="/privacy" className="font-semibold underline underline-offset-2">Privacy Policy</Link>.</p>
+                            {isSubmitted && missingFields.length > 0 ? (
+                                <div role="status" className="mt-4 border-l-4 border-status-error bg-status-error/5 p-4 text-sm text-status-error">
+                                    <p className="font-semibold">Please complete these before sending:</p>
+                                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                                        {missingFields.map((field) => (
+                                            <li key={field.name}>{field.label}{field.message ? `: ${field.message}` : ''}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
+                            <label htmlFor="consent" className="mt-5 flex cursor-pointer items-start gap-3 text-sm text-ink">
+                                <input
+                                    id="consent"
+                                    type="checkbox"
+                                    checked={consent}
+                                    onChange={(event) => {
+                                        setConsent(event.target.checked);
+                                        if (event.target.checked) setConsentError(false);
+                                    }}
+                                    aria-invalid={consentError}
+                                    aria-describedby={consentError ? 'consent-error' : undefined}
+                                    className="mt-1 h-4 w-4 accent-[color:var(--brand-700)]"
+                                />
+                                <span>I agree the farm may contact me about this request by WhatsApp, phone or email.</span>
+                            </label>
+                            {consentError ? <FieldError id="consent-error" message="Please confirm we can contact you about this request." /> : null}
+                            <p className="mt-3 max-w-xl text-xs leading-5 text-ink-muted">Read our <Link href="/privacy" className="font-semibold underline underline-offset-2">Privacy Policy</Link> to see how we use your details.</p>
                         </form>
                     </>
                 ) : null}
@@ -814,6 +985,10 @@ export function OrderFlow({
     const cartSeedFish = cartItems?.[0]?.fish_type;
     const cartSeedSize = cartItems?.[0]?.size;
     const cartSeedKg = cartItems?.reduce((sum, line) => sum + line.quantity_kg, 0) ?? 0;
+    // Read inside the draft effect without becoming one of its dependencies, so editing a cart
+    // line does not re-run the reset and wipe what the customer has already typed.
+    const cartSeedKgRef = useRef(cartSeedKg);
+    cartSeedKgRef.current = cartSeedKg;
     const minOrderKg = catalog?.settings.min_order_kg ?? 40;
     const maxOrderKg = catalog?.settings.max_order_kg ?? 20_000;
     const minLeadDays = catalog?.settings.min_lead_days ?? 1;
@@ -860,6 +1035,13 @@ export function OrderFlow({
     const [turnstileStatus, setTurnstileStatus] = useState<TurnstileStatus>(turnstileSiteKey ? 'verifying' : 'disabled');
     const [turnstileRetryCount, setTurnstileRetryCount] = useState(0);
     const [account, setAccount] = useState<SignedInAccount>(null);
+
+    // A Google sign-in supplies the contact details, so checkout pre-fills (and locks) them.
+    useEffect(() => {
+        if (!account) return;
+        if (account.name) form.setValue('customer_name', account.name);
+        if (account.email) form.setValue('email', account.email);
+    }, [account, form]);
     const [checkoutReady, setCheckoutReady] = useState(mode !== 'review');
     const router = useRouter();
     // Held in a ref so effects do not depend on the router object identity (stable in the
@@ -867,6 +1049,7 @@ export function OrderFlow({
     const routerRef = useRef(router);
     routerRef.current = router;
     const hydratedPresetApplied = useRef(false);
+    const capturedItemRef = useRef<string | null>(null);
 
     useEffect(() => {
         try {
@@ -882,15 +1065,8 @@ export function OrderFlow({
         if (!hasHydrated) return;
         const savedDraft = useOrderDraftStore.getState().draft;
         const storedProgress = useOrderDraftStore.getState();
-        // A cart checkout has no order draft: seed the single-line fields from the cart so the
-        // shared form validates, while the request itself is sent as `items[]`.
-        const cartSeed = cartSeedKg > 0
-            ? {
-                fish_type: cartSeedFish,
-                size: cartSeedSize,
-                quantity_kg: cartSeedKg,
-            }
-            : null;
+        // The draft pre-fills the order-level fields. Fish, size and kg belong to the cart and
+        // are synced by the effect below, so this reset only runs once per draft hydration.
         form.reset({
             preferred_date: defaultPreferredDate(minLeadDays),
             notes: '',
@@ -899,14 +1075,13 @@ export function OrderFlow({
             delivery_landmark: '',
             ...savedDraft,
             fulfilment: savedDraft.fulfilment ?? 'pickup',
-            ...(cartSeed ?? {}),
         });
         setMobileStep(storedProgress.mobileStep);
         if (mode === 'review') {
             // /checkout shows Review & Confirm only. The cart is the source of truth in the
             // cart flow, so an order draft is optional there; with neither a cart nor a draft
             // we go to /cart, never to /order, which would bounce the visitor straight back.
-            if (!hasCheckoutDraft(savedDraft) && !cartSeed) {
+            if (!hasCheckoutDraft(savedDraft) && !cartSeedKgRef.current) {
                 routerRef.current.replace('/cart');
                 return;
             }
@@ -920,7 +1095,17 @@ export function OrderFlow({
         }
         // /order never redirects to /checkout on its own: only the explicit "Review request"
         // button navigates, otherwise a refresh on /order would bounce into the cart loop.
-    }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen, cartSeedFish, cartSeedSize, cartSeedKg]);
+    }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen]);
+
+    // The cart owns fish/size/kg. Syncing them separately means editing a line on checkout
+    // does not wipe the details the customer has already typed. It also re-runs after the
+    // draft hydration above, which is what would otherwise clear these three values.
+    useEffect(() => {
+        if (!hasHydrated || !cartSeedFish) return;
+        form.setValue('fish_type', cartSeedFish, { shouldValidate: false });
+        form.setValue('size', cartSeedSize ?? '', { shouldValidate: false });
+        form.setValue('quantity_kg', cartSeedKg, { shouldValidate: false });
+    }, [form, hasHydrated, cartSeedFish, cartSeedSize, cartSeedKg]);
 
     useEffect(() => {
         if (!hasHydrated) return;
@@ -962,7 +1147,33 @@ export function OrderFlow({
         }
     }, [catalog, form, hasHydrated, initialFishType, initialIntent, initialSize, selectableSizeSlugs, setSourceIntent]);
 
+    /**
+     * Questions 1-3 are the item, so they go to the cart; questions 4-6 are order-level and
+     * stay in the draft, which pre-fills checkout. Repeats are ignored so clicking "next"
+     * twice cannot double the quantity.
+     */
+    function captureWizardSelections() {
+        const values = form.getValues();
+        if (values.fish_type && values.size && Number.isInteger(values.quantity_kg)) {
+            const item = { fish_type: values.fish_type, size: values.size, quantity_kg: values.quantity_kg };
+            const key = `${item.fish_type}:${item.size}:${item.quantity_kg}`;
+            if (capturedItemRef.current !== key) {
+                capturedItemRef.current = key;
+                void useCartStore.getState().addLine(item);
+            }
+        }
+        mergeDraft({
+            preferred_date: values.preferred_date,
+            time_slot: values.time_slot,
+            fulfilment: values.fulfilment,
+            delivery_address: values.delivery_address,
+            delivery_landmark: values.delivery_landmark,
+            notes: values.notes,
+        });
+    }
+
     async function openReview() {
+        captureWizardSelections();
         for (const field of orderQuestionFields) {
             const valid = await form.trigger(field, { shouldFocus: true });
             if (!valid) return false;
@@ -990,6 +1201,8 @@ export function OrderFlow({
     }
 
     async function nextMobileStep() {
+        // Leaving questions 1-3 adds the item to the cart.
+        if (mobileStep === 2) captureWizardSelections();
         const fields = mobileStepFields[mobileStep];
         if (!fields) return;
         const valid = await form.trigger([...fields], { shouldFocus: true });
@@ -1189,7 +1402,11 @@ export function OrderFlow({
                         <ReviewPanel
                             catalog={catalog}
                             onBack={returnToOrderFromReview}
-                            onSubmit={(event) => { void form.handleSubmit(submitOrder)(event); }}
+                            onSubmit={(event) => {
+                                // On a failed submit, take the customer straight to the first
+                                // field they need to fix instead of showing an inert banner.
+                                form.handleSubmit(submitOrder, () => focusFirstInvalidField())(event);
+                            }}
                             pending={pending}
                             error={submissionError}
                             idempotencyKey={idempotencyKey}
