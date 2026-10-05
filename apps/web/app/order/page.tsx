@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SiteHeader } from '@/components/layout/site-header';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
+import { OrderCartPanel } from '@/components/cart/order-cart-panel';
 import { OrderFlow } from '@/components/order/order-flow';
 import { getCatalog } from '@/lib/catalog-api';
 
@@ -29,6 +30,13 @@ export default async function OrderPage({ searchParams }: OrderPageProps) {
                 <p className="mt-3 max-w-2xl leading-7 text-ink-muted">Tell us what you need. The farm will check availability and confirm the current price before you commit.</p>
                 {!catalog ? <p role="status" className="mt-5 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-3 text-sm text-brand-900">Live catalog details are temporarily unavailable. You can still complete a request and the farm will confirm availability.</p> : null}
                 <OrderFlow catalog={catalog} initialSize={params.size ?? null} initialFishType={params.fish_type ?? null} initialIntent={params.intent ?? null} />
+                {catalog ? (
+                    <OrderCartPanel
+                        sizes={catalog.size_classes}
+                        minOrderKg={catalog.settings.min_order_kg}
+                        maxOrderKg={catalog.settings.max_order_kg}
+                    />
+                ) : null}
             </main>
             <SiteFooter />
             <MobileBottomNav />

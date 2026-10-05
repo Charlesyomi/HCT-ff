@@ -69,7 +69,15 @@ export default async function OurFishPage() {
                     <p className="mt-4 max-w-2xl text-sm text-ink-muted">Not sure what to choose? Choose &ldquo;Either / no preference&rdquo; and tell us what you plan to do with the fish. We will recommend what is ready.</p>
                     {catalog && catalog.size_classes.length > 0 ? (
                         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} whatsappNumber={catalog.settings.whatsapp_number} />)}
+                            {catalog.size_classes.map((size) => (
+                                <SizeCard
+                                    key={size.slug}
+                                    size={size}
+                                    whatsappNumber={catalog.settings.whatsapp_number}
+                                    minOrderKg={catalog.settings.min_order_kg}
+                                    maxOrderKg={catalog.settings.max_order_kg}
+                                />
+                            ))}
                         </div>
                     ) : (
                         <p className="mt-6 border-y border-line-soft py-6 text-ink-muted">Live size availability is temporarily unavailable. Submit a request and the farm will confirm options.</p>

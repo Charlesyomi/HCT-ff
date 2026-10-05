@@ -2,9 +2,20 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { SizeClass } from '@/lib/catalog-api';
 import { formatRateKobo } from '@/lib/money';
+import { AddToCartControl } from '@/components/cart/add-to-cart-control';
 import { StatusPill } from './status-pill';
 
-export function SizeCard({ size, whatsappNumber }: { size: SizeClass; whatsappNumber: string }) {
+export function SizeCard({
+    size,
+    whatsappNumber,
+    minOrderKg = 40,
+    maxOrderKg = 20_000,
+}: {
+    size: SizeClass;
+    whatsappNumber: string;
+    minOrderKg?: number;
+    maxOrderKg?: number;
+}) {
     const digits = whatsappNumber.replace(/\D/g, '');
     const askHref = digits
         ? `https://wa.me/${digits}?text=${encodeURIComponent(`Hi Adesoba Farm, is the ${size.label} size available?`)}`
@@ -43,12 +54,20 @@ export function SizeCard({ size, whatsappNumber }: { size: SizeClass; whatsappNu
                     Ask us
                 </a>
             ) : (
-                <Link
-                    href={`/order?size=${encodeURIComponent(size.slug)}`}
-                    className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[color:var(--brand-900)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-700)]"
-                >
-                    Request
-                </Link>
+                <>
+                    <Link
+                        href={`/order?size=${encodeURIComponent(size.slug)}`}
+                        className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[color:var(--brand-700)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[color:var(--brand-900)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand-700)]"
+                    >
+                        Request
+                    </Link>
+                    <AddToCartControl
+                        sizeSlug={size.slug}
+                        sizeLabel={size.label}
+                        minOrderKg={minOrderKg}
+                        maxOrderKg={maxOrderKg}
+                    />
+                </>
             )}
         </article>
     );

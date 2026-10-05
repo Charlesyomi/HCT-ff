@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+import { CartProvider } from '@/components/cart/cart-provider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
@@ -21,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return (
         <html lang="en">
             <body className={`${inter.variable} ${plusJakarta.variable} font-sans text-[color:var(--text)] antialiased`}>
-                {children}
+                <CartProvider>{children}</CartProvider>
             </body>
         </html>
     );

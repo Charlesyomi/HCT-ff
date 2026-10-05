@@ -143,7 +143,15 @@ async function HomeContent() {
 
                     {catalog && catalog.size_classes.length > 0 ? (
                         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                            {catalog.size_classes.map((size) => <SizeCard key={size.slug} size={size} whatsappNumber={catalog.settings.whatsapp_number} />)}
+                            {catalog.size_classes.map((size) => (
+                                <SizeCard
+                                    key={size.slug}
+                                    size={size}
+                                    whatsappNumber={catalog.settings.whatsapp_number}
+                                    minOrderKg={catalog.settings.min_order_kg}
+                                    maxOrderKg={catalog.settings.max_order_kg}
+                                />
+                            ))}
                         </div>
                     ) : (
                         <div className="flex flex-col items-start gap-4 border-y border-line-soft py-8 sm:flex-row sm:items-center sm:justify-between">

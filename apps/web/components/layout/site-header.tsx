@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Fish, Menu, MessageCircle, Phone } from 'lucide-react';
 import { getCatalog } from '@/lib/catalog-api';
+import { CartButton } from '@/components/cart/cart-button';
 import { AccountNav } from './account-nav';
 
 const links = [
@@ -43,6 +44,7 @@ export async function SiteHeader() {
                 </nav>
 
                 <div className="flex items-center gap-3">
+                    <CartButton />
                     <div className="hidden lg:block"><AccountNav /></div>
                     <details className="relative lg:hidden">
                         <summary aria-label="Open navigation menu" className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full border border-line-soft text-ink">

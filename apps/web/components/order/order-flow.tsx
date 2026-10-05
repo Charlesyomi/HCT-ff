@@ -11,6 +11,8 @@ import { z } from 'zod';
 import { formatHarvestDate, formatPriceUpdatedAt, type Catalog, type SizeClass } from '@/lib/catalog-api';
 import { createOrderFormSchema, defaultPreferredDate, deliveryAddressSchema, type OrderFormInput, type OrderFormValues } from '@/lib/order-form';
 import { useOrderDraftStore, type OrderSourceIntent } from '@/lib/order-draft-store';
+import { useCartStore, clearGuestLines } from '@/lib/cart-store';
+import type { CartLineInput } from '@/lib/cart-api';
 import { StatusPill } from '@/components/catalog/status-pill';
 import { SignInChoice, type SignedInAccount } from '@/components/auth/sign-in-choice';
 import { formatKobo } from '@/lib/money';
@@ -788,6 +790,7 @@ export function OrderFlow({
     initialFishType,
     initialIntent,
     mode = 'full',
+    cartItems,
 }: {
     catalog: Catalog | null;
     initialSize: string | null;
@@ -799,7 +802,18 @@ export function OrderFlow({
      * which redirects to /order when the persisted draft is empty.
      */
     mode?: 'full' | 'review';
+    /**
+     * Cart lines submitted as one multi-line order. When present the flow sends `items[]`
+     * instead of the single-line fields, keeps a single Idempotency-Key, and clears the cart
+     * once the farm accepts the request.
+     */
+    cartItems?: CartLineInput[];
 }) {
+    const isCartCheckout = Boolean(cartItems && cartItems.length > 0);
+    // Stable primitives (not the array) so the checkout effect does not re-run every render.
+    const cartSeedFish = cartItems?.[0]?.fish_type;
+    const cartSeedSize = cartItems?.[0]?.size;
+    const cartSeedKg = cartItems?.reduce((sum, line) => sum + line.quantity_kg, 0) ?? 0;
     const minOrderKg = catalog?.settings.min_order_kg ?? 40;
     const maxOrderKg = catalog?.settings.max_order_kg ?? 20_000;
     const minLeadDays = catalog?.settings.min_lead_days ?? 1;
@@ -868,6 +882,15 @@ export function OrderFlow({
         if (!hasHydrated) return;
         const savedDraft = useOrderDraftStore.getState().draft;
         const storedProgress = useOrderDraftStore.getState();
+        // A cart checkout has no order draft: seed the single-line fields from the cart so the
+        // shared form validates, while the request itself is sent as `items[]`.
+        const cartSeed = cartSeedKg > 0
+            ? {
+                fish_type: cartSeedFish,
+                size: cartSeedSize,
+                quantity_kg: cartSeedKg,
+            }
+            : null;
         form.reset({
             preferred_date: defaultPreferredDate(minLeadDays),
             notes: '',
@@ -876,12 +899,13 @@ export function OrderFlow({
             delivery_landmark: '',
             ...savedDraft,
             fulfilment: savedDraft.fulfilment ?? 'pickup',
+            ...(cartSeed ?? {}),
         });
         setMobileStep(storedProgress.mobileStep);
         if (mode === 'review') {
             // /checkout shows Review & Confirm only; an empty draft means the visitor
             // arrived directly, so send them back to the form instead of a blank summary.
-            if (!hasCheckoutDraft(savedDraft)) {
+            if (!hasCheckoutDraft(savedDraft) && !cartSeed) {
                 routerRef.current.replace('/order');
                 return;
             }
@@ -896,7 +920,7 @@ export function OrderFlow({
         if (storedProgress.reviewOpen) {
             routerRef.current.replace('/checkout');
         }
-    }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen]);
+    }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen, cartSeedFish, cartSeedSize, cartSeedKg]);
 
     useEffect(() => {
         if (!hasHydrated) return;
@@ -1023,6 +1047,15 @@ export function OrderFlow({
         const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
         const requestValues = { ...values };
         delete requestValues.custom_quantity_kg;
+        // A cart checkout sends the cart lines; the single-line fields are dropped so the API
+        // sees one unambiguous multi-line request.
+        const lineFields = isCartCheckout
+            ? {}
+            : {
+                fish_type: requestValues.fish_type,
+                size: requestValues.size,
+                quantity_kg: requestValues.quantity_kg,
+            };
 
         try {
             const response = await fetch(`${apiUrl}/api/v1/orders`, {
@@ -1034,6 +1067,8 @@ export function OrderFlow({
                 signal: controller.signal,
                 body: JSON.stringify({
                     ...requestValues,
+                    ...lineFields,
+                    ...(isCartCheckout ? { items: cartItems } : {}),
                     source_intent: sourceIntent,
                     // Honeypot and Turnstile fields (SPEC §6.12). The honeypot stays empty for
                     // humans; the Turnstile token is only present when the widget is configured.
@@ -1096,6 +1131,11 @@ export function OrderFlow({
             setReference(parsedResponse.data.reference);
             rememberTrackedOrder(parsedResponse.data.reference, parsedResponse.data.access_token);
             clearDraft();
+            if (isCartCheckout) {
+                // The cart has become an order, so it must not be submitted twice.
+                void useCartStore.getState().clear();
+                clearGuestLines();
+            }
             if (mode === 'review') {
                 // Addendum §A1: confirmation lives on its own route so a refresh cannot resubmit.
                 routerRef.current.push(`/order/sent/${encodeURIComponent(parsedResponse.data.reference)}`);
