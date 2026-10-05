@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SiteHeader } from '@/components/layout/site-header';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
-import { OrderFlow } from '@/components/order/order-flow';
 import { CartCheckout } from '@/components/cart/cart-checkout';
 import { getCatalog } from '@/lib/catalog-api';
 
@@ -29,16 +28,7 @@ export default async function CheckoutPage() {
                 <h1 className="mt-3 font-display text-4xl font-bold text-ink">Checkout</h1>
                 <p className="mt-3 max-w-2xl leading-7 text-ink-muted">Check your details, then send the request to the farm. You have not been charged.</p>
                 {!catalog ? <p role="status" className="mt-5 border-l-4 border-[color:var(--brand-700)] bg-[color:var(--brand-100)] px-4 py-3 text-sm text-brand-900">Live catalog details are temporarily unavailable. You can still send your request and the farm will confirm availability.</p> : null}
-                <CartCheckout minOrderKg={catalog?.settings.min_order_kg ?? 40} />
-                <details className="mt-10 border-t border-line-soft pt-6">
-                    <summary className="cursor-pointer text-sm font-semibold text-[color:var(--brand-700)]">
-                        Ordering a single size instead?
-                    </summary>
-                    <p className="mt-3 text-sm text-ink-muted">
-                        Use the order form for one size, or open your cart to send several sizes as a single request.
-                    </p>
-                    <OrderFlow catalog={catalog} initialSize={null} initialFishType={null} initialIntent={null} mode="review" />
-                </details>
+                <CartCheckout catalog={catalog} minOrderKg={catalog?.settings.min_order_kg ?? 40} />
             </main>
             <SiteFooter />
             <MobileBottomNav />

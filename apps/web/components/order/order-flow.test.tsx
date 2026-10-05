@@ -220,8 +220,10 @@ describe('OrderFlow', () => {
         firstRender.unmount();
 
         renderFlow();
-        await waitFor(() => expect(replace).toHaveBeenCalledWith('/checkout'));
-        expect(screen.getByRole('heading', { name: 'What kind of fish do you want?' })).toBeInTheDocument();
+        // /order never redirects to /checkout by itself; only the explicit button above does,
+        // so a refresh here cannot bounce into the cart checkout loop.
+        await waitFor(() => expect(screen.getByRole('heading', { name: 'What kind of fish do you want?' })).toBeInTheDocument());
+        expect(replace).not.toHaveBeenCalledWith('/checkout');
         const restoredState = JSON.parse(sessionStorage.getItem('adesoba-order-draft') ?? '{}') as {
             state?: { idempotencyKey?: string; reviewOpen?: boolean };
         };

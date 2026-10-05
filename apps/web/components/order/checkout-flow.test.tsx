@@ -111,10 +111,10 @@ afterEach(() => {
 });
 
 describe('/checkout (Addendum §A1)', () => {
-    it('redirects to /order when there is no saved order state', async () => {
+    it('redirects to /cart when there is neither a saved order state nor a cart', async () => {
         renderCheckout();
 
-        await waitFor(() => expect(replace).toHaveBeenCalledWith('/order'));
+        await waitFor(() => expect(replace).toHaveBeenCalledWith('/cart'));
     });
 
     it('renders Review & Confirm from the persisted draft and keeps the no-charge banner', async () => {

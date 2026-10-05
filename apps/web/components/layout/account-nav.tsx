@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 const googleSignInEnabled = process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED === 'true';
@@ -26,9 +25,12 @@ export function AccountNav() {
 
     if (!signedIn) {
         return (
-            <Link href="/api/v1/auth/google/start?next=%2Fmy-orders" className="text-sm font-semibold text-ink transition hover:text-[color:var(--brand-700)]">
+            // A plain anchor, not a Next Link: Link prefetches as an RSC request, which would
+            // follow the redirect to accounts.google.com and fail CORS, and would also mint a
+            // fresh sign-in state cookie on every prefetch.
+            <a href="/api/v1/auth/google/start?next=%2Fmy-orders" className="text-sm font-semibold text-ink transition hover:text-[color:var(--brand-700)]">
                 Sign in
-            </Link>
+            </a>
         );
     }
 

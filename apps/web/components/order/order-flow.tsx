@@ -903,10 +903,11 @@ export function OrderFlow({
         });
         setMobileStep(storedProgress.mobileStep);
         if (mode === 'review') {
-            // /checkout shows Review & Confirm only; an empty draft means the visitor
-            // arrived directly, so send them back to the form instead of a blank summary.
+            // /checkout shows Review & Confirm only. The cart is the source of truth in the
+            // cart flow, so an order draft is optional there; with neither a cart nor a draft
+            // we go to /cart, never to /order, which would bounce the visitor straight back.
             if (!hasCheckoutDraft(savedDraft) && !cartSeed) {
-                routerRef.current.replace('/order');
+                routerRef.current.replace('/cart');
                 return;
             }
             setView('review');
@@ -917,9 +918,8 @@ export function OrderFlow({
             setCheckoutReady(true);
             return;
         }
-        if (storedProgress.reviewOpen) {
-            routerRef.current.replace('/checkout');
-        }
+        // /order never redirects to /checkout on its own: only the explicit "Review request"
+        // button navigates, otherwise a refresh on /order would bounce into the cart loop.
     }, [form, hasHydrated, minLeadDays, mode, setStoredIdempotencyKey, setStoredReviewOpen, cartSeedFish, cartSeedSize, cartSeedKg]);
 
     useEffect(() => {
