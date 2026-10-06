@@ -2,7 +2,7 @@
     "name": "adesoba-fish-farm-shop",
     "private": true,
     "workspaces": [
-        "apps/*"
+        "apps/web"
     ],
     "scripts": {
         "dev": "npm run dev --workspace apps/web",

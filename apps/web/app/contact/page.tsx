@@ -8,8 +8,8 @@ import { LocalBusinessJsonLd } from '@/components/seo/local-business-json-ld';
 import { getCatalog } from '@/lib/catalog-api';
 
 export const metadata: Metadata = {
-    title: 'Contact | Adesoba',
-    description: 'Get in touch with Adesoba Catfish Farm by phone, WhatsApp or message.',
+    title: 'Contact | HCT Fish Farms',
+    description: 'Get in touch with HCT Fish Farms by phone, WhatsApp or message.',
 };
 
 export const revalidate = 60;
@@ -20,7 +20,7 @@ export default async function ContactPage() {
     const phone = settings?.phone_number;
     const whatsappDigits = settings?.whatsapp_number.replace(/\D/g, '');
     const whatsappHref = whatsappDigits
-        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi Adesoba Farm, I have a question.')}`
+        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi HCT Fish Farms, I have a question.')}`
         : null;
 
     return (

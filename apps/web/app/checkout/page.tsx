@@ -8,8 +8,8 @@ import { getCatalog } from '@/lib/catalog-api';
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-    title: 'Checkout | Adesoba',
-    description: 'Review your catfish request before sending it to Adesoba Farm.',
+    title: 'Checkout | HCT Fish Farms',
+    description: 'Review your catfish request before sending it to HCT Fish Farms.',
     robots: { index: false, follow: false },
 };
 

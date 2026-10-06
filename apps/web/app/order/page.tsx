@@ -10,8 +10,8 @@ import { getCatalog } from '@/lib/catalog-api';
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-    title: 'Order Fish | Adesoba',
-    description: 'Request a quote for live catfish from Adesoba Farm.',
+    title: 'Order Fish | HCT Fish Farms',
+    description: 'Request a quote for live catfish from HCT Fish Farms.',
 };
 
 type OrderPageProps = {

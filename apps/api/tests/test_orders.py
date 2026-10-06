@@ -591,6 +591,32 @@ def test_turnstile_accepts_a_verified_token_and_blocks_replays(
     assert len(stored_orders(engine)) == 1
 
 
+def test_turnstile_retry_replays_existing_order_with_a_fresh_token(
+    order_app: tuple[TestClient, Engine],
+    order_payload: Callable[..., dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine = order_app
+    monkeypatch.setattr(turnstile_module.settings, "turnstile_secret_key", "test-secret")
+
+    siteverify_calls = 0
+
+    def siteverify(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal siteverify_calls
+        siteverify_calls += 1
+        return _fake_siteverify(success=True)
+
+    monkeypatch.setattr(turnstile_module.httpx, "post", siteverify)
+
+    first = post_order(client, order_payload(turnstile_token="token-first"), "turnstile-retry")
+    retried = post_order(client, order_payload(turnstile_token="token-fresh"), "turnstile-retry")
+
+    assert first.status_code == retried.status_code == 201
+    assert retried.json() == first.json()
+    assert siteverify_calls == 1
+    assert len(stored_orders(engine)) == 1
+
+
 def test_turnstile_rejection_from_the_provider_stops_the_order(
     order_app: tuple[TestClient, Engine],
     order_payload: Callable[..., dict[str, Any]],

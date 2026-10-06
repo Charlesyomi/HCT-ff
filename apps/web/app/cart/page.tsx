@@ -6,7 +6,7 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { getCatalog } from '@/lib/catalog-api';
 
 export const metadata: Metadata = {
-    title: 'Your Cart | Adesoba',
+    title: 'Your Cart | HCT Fish Farms',
     description: 'Review the catfish sizes you have saved before requesting a quote.',
     robots: { index: false, follow: false },
 };

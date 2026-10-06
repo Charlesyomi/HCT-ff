@@ -56,7 +56,7 @@ export default function AdminOrdersPage() {
     }, [load]);
 
     function messageFor(order: AdminOrderSummary): string {
-        return `Hi ${order.customer_name}, about your Adesoba order ${order.reference}: ${order.quantity_kg}kg ${order.size_label}, ${order.fulfilment === 'delivery' ? 'delivery' : 'pickup'}, preferred ${order.preferred_date}.`;
+        return `Hi ${order.customer_name}, about your HCT Fish Farms order ${order.reference}: ${order.quantity_kg}kg ${order.size_label}, ${order.fulfilment === 'delivery' ? 'delivery' : 'pickup'}, preferred ${order.preferred_date}.`;
     }
 
     return (

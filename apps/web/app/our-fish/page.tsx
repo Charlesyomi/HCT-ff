@@ -6,6 +6,7 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { SizeCard } from '@/components/catalog/size-card';
 import { getCatalog } from '@/lib/catalog-api';
+import { fishImagePath } from '@/lib/catalog-images';
 
 const fishCopy: Record<string, string> = {
     clarias: 'The catfish everyone knows. Widely loved across Nigeria and easy to find. A dependable choice for family tables and businesses.',
@@ -13,7 +14,7 @@ const fishCopy: Record<string, string> = {
 };
 
 export const metadata: Metadata = {
-    title: 'Our Fish | Adesoba',
+    title: 'Our Fish | HCT Fish Farms',
     description: 'Learn about our Clarias and Hybrid catfish and the sizes we offer.',
 };
 
@@ -36,7 +37,7 @@ export default async function OurFishPage() {
                         <article key={fish.slug} className="grid gap-5 border-b border-line-soft pb-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] sm:items-center">
                             <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">
                                 <Image
-                                    src={fish.image_path}
+                                    src={fishImagePath(fish.slug, fish.image_path)}
                                     alt={`${fish.name} catfish`}
                                     fill
                                     priority={fish.sort_order === 1}

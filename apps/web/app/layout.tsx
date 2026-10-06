@@ -7,13 +7,13 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 const plusJakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-display' });
 
 export const metadata: Metadata = {
-    title: 'Adesoba Catfish Farm',
+    title: 'HCT Fish Farms',
     description: 'Fresh catfish direct from the farm in Nigeria.',
     metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
     openGraph: {
         type: 'website',
-        siteName: 'Adesoba Catfish Farm',
-        title: 'Adesoba Catfish Farm',
+        siteName: 'HCT Fish Farms',
+        title: 'HCT Fish Farms',
         description: 'Fresh catfish direct from the farm in Nigeria.',
     },
 };

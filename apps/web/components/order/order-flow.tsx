@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft, ArrowRight, Check, CircleAlert, LoaderCircle, MessageCircle, Phone } from 'lucide-react';
 import { z } from 'zod';
 import { formatHarvestDate, formatPriceUpdatedAt, type Catalog, type SizeClass } from '@/lib/catalog-api';
+import { sizeImagePath } from '@/lib/catalog-images';
 import { createOrderFormSchema, defaultPreferredDate, deliveryAddressSchema, type OrderFormInput, type OrderFormValues } from '@/lib/order-form';
 import { useOrderDraftStore, type OrderSourceIntent } from '@/lib/order-draft-store';
 import { useCartStore, clearGuestLines } from '@/lib/cart-store';
@@ -275,7 +276,7 @@ function QuestionSection({
 function AvailabilitySidebar({ catalog }: { catalog: Catalog | null }) {
     const whatsappDigits = catalog?.settings.whatsapp_number.replace(/\D/g, '');
     const whatsappHref = whatsappDigits
-        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi Adesoba Farm, I would like help choosing fish for an order.')}`
+        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi HCT Fish Farms, I would like help choosing fish for an order.')}`
         : '/contact';
 
     return (
@@ -570,7 +571,7 @@ function SizeChoice({ size, selected }: { size: SizeClass; selected: boolean }) 
         <label className={`relative flex min-h-24 gap-3 rounded-xl border p-3 ${error ? 'cursor-not-allowed border-line-soft bg-canvas-tint opacity-70' : 'cursor-pointer border-line-soft bg-canvas has-[:checked]:border-2 has-[:checked]:border-[color:var(--brand-700)] has-[:checked]:bg-[color:var(--brand-100)] focus-within:ring-2 focus-within:ring-[color:var(--brand-700)]'}`}>
             <input type="radio" value={size.slug} disabled={error} {...register('size')} className="mt-1 accent-[color:var(--brand-700)]" />
             <span className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md bg-[color:var(--brand-100)]">
-                <Image src={size.image_path} alt="" fill sizes="80px" className="object-cover" />
+                <Image src={sizeImagePath(size.slug, size.image_path)} alt="" fill sizes="80px" className="object-cover" />
             </span>
             <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center justify-between gap-2">
@@ -1367,7 +1368,7 @@ export function OrderFlow({
 
     const whatsappDigits = catalog?.settings.whatsapp_number.replace(/\D/g, '');
     const currentValues = form.getValues();
-    const fallbackMessage = `Hi Adesoba Farm, I would like to request ${currentValues.quantity_kg ?? ''}kg of ${currentValues.fish_type ?? 'catfish'} ${currentValues.size ?? ''}. My preferred date is ${currentValues.preferred_date ?? ''}.`;
+    const fallbackMessage = `Hi HCT Fish Farms, I would like to request ${currentValues.quantity_kg ?? ''}kg of ${currentValues.fish_type ?? 'catfish'} ${currentValues.size ?? ''}. My preferred date is ${currentValues.preferred_date ?? ''}.`;
     const fallbackHref = whatsappDigits
         ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(fallbackMessage)}`
         : '/contact';

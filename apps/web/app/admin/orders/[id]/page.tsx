@@ -126,7 +126,7 @@ export default function AdminOrderDetailPage() {
     };
     const previewTotal = quoteTotalKobo(draft);
 
-    const message = `Hi ${order.customer_name}, about your Adesoba order ${order.reference}: ${order.quantity_kg}kg ${order.size_label}, ${order.fulfilment === 'delivery' ? 'delivery' : 'pickup'}, preferred ${order.preferred_date}.`;
+    const message = `Hi ${order.customer_name}, about your HCT Fish Farms order ${order.reference}: ${order.quantity_kg}kg ${order.size_label}, ${order.fulfilment === 'delivery' ? 'delivery' : 'pickup'}, preferred ${order.preferred_date}.`;
 
     return (
         <main className="mx-auto max-w-3xl px-4 py-8 md:px-8">

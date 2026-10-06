@@ -12,12 +12,12 @@ import { getCatalog, formatHarvestDate } from '@/lib/catalog-api';
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-    title: 'Fresh Catfish Directly From Our Farm | Adesoba Catfish Farm',
-    description: 'Request fresh Clarias or Hybrid catfish, raised at Adesoba Farm and supplied by confirmed harvest availability.',
+    title: 'Fresh Catfish Directly From Our Farm | HCT Fish Farms',
+    description: 'Request fresh Clarias or Hybrid catfish, raised at HCT Fish Farms and supplied by confirmed harvest availability.',
     openGraph: {
-        title: 'Adesoba Catfish Farm',
+        title: 'HCT Fish Farms',
         description: 'Fresh Catfish Directly From Our Farm',
-        images: ['/images/farm-pond-placeholder.svg'],
+        images: ['/images/hct/farm-pond.jpg'],
     },
 };
 
@@ -44,7 +44,7 @@ async function HomeContent() {
     const harvestWindow = catalog?.harvest_window;
     const whatsappDigits = catalog?.settings.whatsapp_number.replace(/\D/g, '');
     const whatsappHref = whatsappDigits
-        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi Adesoba Farm, I would like to ask about your current catfish availability.')}`
+        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi HCT Fish Farms, I would like to ask about your current catfish availability.')}`
         : '/contact';
 
     return (
@@ -60,8 +60,8 @@ async function HomeContent() {
             <main className="bg-[color:var(--surface)] text-[color:var(--text)]">
                 <section className="relative isolate overflow-hidden bg-[color:var(--brand-900)] text-white">
                     <Image
-                        src="/images/farm-pond-placeholder.svg"
-                        alt="Catfish farm pond placeholder photograph"
+                        src="/images/hct/farm-pond.jpg"
+                        alt="Fish ponds at HCT Fish Farms"
                         fill
                         priority
                         sizes="100vw"
@@ -182,8 +182,8 @@ async function HomeContent() {
                     <div className="mx-auto grid max-w-7xl gap-0 lg:grid-cols-2">
                         <div className="relative min-h-80 lg:min-h-[480px]">
                             <Image
-                                src="/images/farmer-catfish-placeholder.svg"
-                                alt="Farm owner holding a healthy catfish, photograph placeholder"
+                                src="/images/hct/farmer-catfish.jpg"
+                                alt="HCT Fish Farms farmer holding a healthy catfish"
                                 fill
                                 sizes="(max-width: 1023px) 100vw, 50vw"
                                 className="object-cover"

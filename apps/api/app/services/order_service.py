@@ -382,8 +382,6 @@ def create_order(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Submission rejected.",
         )
-    enforce_turnstile(request.turnstile_token, client_ip or None)
-
     # Payload hash for idempotency comparison
     payload_hash = compute_payload_hash(request)
 
@@ -401,6 +399,10 @@ def create_order(
             settings.secret_key, existing_order.reference, idempotency_key
         )
         return existing_order, replayed_token
+
+    # A completed request must replay before validating its one-use Turnstile token.
+    # New idempotency keys still require a fresh, verified token below.
+    enforce_turnstile(request.turnstile_token, client_ip or None)
 
     # 2. Normalize and validate phone
     phone_e164 = normalize_nigerian_phone(request.phone)

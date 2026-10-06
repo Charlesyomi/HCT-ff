@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { SizeClass } from '@/lib/catalog-api';
 import { formatRateKobo } from '@/lib/money';
 import { AddToCartControl } from '@/components/cart/add-to-cart-control';
+import { sizeImagePath } from '@/lib/catalog-images';
 import { StatusPill } from './status-pill';
 
 export function SizeCard({
@@ -18,7 +19,7 @@ export function SizeCard({
 }) {
     const digits = whatsappNumber.replace(/\D/g, '');
     const askHref = digits
-        ? `https://wa.me/${digits}?text=${encodeURIComponent(`Hi Adesoba Farm, is the ${size.label} size available?`)}`
+        ? `https://wa.me/${digits}?text=${encodeURIComponent(`Hi HCT Fish Farms, is the ${size.label} size available?`)}`
         : '/contact';
 
     return (
@@ -30,7 +31,7 @@ export function SizeCard({
             ) : null}
             <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">
                 <Image
-                    src={size.image_path}
+                    src={sizeImagePath(size.slug, size.image_path)}
                     alt={`${size.label} catfish`}
                     fill
                     sizes="(max-width: 767px) 100vw, (max-width: 1279px) 50vw, 25vw"

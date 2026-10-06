@@ -8,8 +8,8 @@ export function LocalBusinessJsonLd({ phone, address, hours }: LocalBusinessJson
     const structuredData = {
         '@context': 'https://schema.org',
         '@type': 'LocalBusiness',
-        name: 'Adesoba Catfish Farm',
-        description: 'Fresh catfish direct from the farm in Nigeria.',
+        name: 'HCT Fish Farms',
+        description: 'Fresh catfish from HCT Fish Farms in Nigeria.',
         telephone: phone,
         address: {
             '@type': 'PostalAddress',
@@ -17,7 +17,7 @@ export function LocalBusinessJsonLd({ phone, address, hours }: LocalBusinessJson
             addressCountry: 'NG',
         },
         openingHours: hours,
-        image: '/images/farm-pond-placeholder.svg',
+        image: '/images/hct/farm-pond.jpg',
     };
 
     return (

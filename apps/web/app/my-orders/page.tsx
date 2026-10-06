@@ -5,8 +5,8 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { MyOrdersDashboard } from '@/components/order/my-orders-dashboard';
 
 export const metadata: Metadata = {
-    title: 'My Orders | Adesoba',
-    description: 'Track active or completed fish orders with Adesoba Farm.',
+    title: 'My Orders | HCT Fish Farms',
+    description: 'Track active or completed fish orders with HCT Fish Farms.',
     robots: { index: false, follow: false },
 };
 

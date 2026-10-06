@@ -4,8 +4,8 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 
 export const metadata: Metadata = {
-    title: 'Terms | Adesoba',
-    description: 'Terms for requesting a catfish quote from Adesoba Catfish Farm.',
+    title: 'Terms | HCT Fish Farms',
+    description: 'Terms for requesting a catfish quote from HCT Fish Farms.',
 };
 
 export const revalidate = 60;
@@ -20,7 +20,7 @@ export default function TermsPage() {
                     <section>
                         <h2 className="font-display text-xl font-bold text-ink">1. How ordering works</h2>
                         <p className="mt-2">
-                            This site lets you request fish from Adesoba Catfish Farm. Sending a request is
+                            These terms apply to HCT Fish Farms. This site lets you request fish from HCT Fish Farms. Sending a request is
                             not a purchase. The farm checks stock, confirms the price, and agrees pickup
                             or delivery with you, usually on WhatsApp or by phone. An order is confirmed
                             only when you and the farm have agreed the size, quantity, price and date.

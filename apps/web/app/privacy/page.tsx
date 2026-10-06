@@ -4,8 +4,8 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 
 export const metadata: Metadata = {
-    title: 'Privacy Policy | Adesoba',
-    description: 'How Adesoba Catfish Farm collects and uses information for order requests.',
+    title: 'Privacy Policy | HCT Fish Farms',
+    description: 'How HCT Fish Farms collects and uses information for order requests.',
 };
 
 export const revalidate = 60;
@@ -18,7 +18,7 @@ export default function PrivacyPage() {
                 <h1 className="font-display text-4xl font-bold text-[color:var(--text)]">Privacy Policy</h1>
                 <div className="mt-6 space-y-4 text-ink-muted">
                     <p>
-                        We respect your privacy and only collect information needed to provide and
+                        This policy applies to HCT Fish Farms. We respect your privacy and only collect information needed to provide and
                         improve our ordering service.
                     </p>
 

@@ -7,7 +7,7 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { getCatalog } from '@/lib/catalog-api';
 
 export const metadata: Metadata = {
-    title: 'About Us | Adesoba',
+    title: 'About Us | HCT Fish Farms',
     description: 'Learn about our family farm and how we raise healthy catfish.',
 };
 
@@ -34,7 +34,7 @@ export default async function AboutPage() {
                 <div className="mt-8 grid gap-7 md:grid-cols-2 md:items-center">
                     <div className="space-y-4 leading-7 text-ink-muted">
                         <p>
-                            Adesoba Catfish Farm is a family-run catfish farm in Ado Ekiti, Ekiti
+                            HCT Fish Farms is a family-run catfish farm in Ado Ekiti, Ekiti
                             State. We stock our ponds, give the fish about six months to grow, and
                             harvest when they are ready: mostly 2–3kg table-size catfish, with smaller
                             smoking and BBQ sizes when we have them.
@@ -60,8 +60,8 @@ export default async function AboutPage() {
                     </div>
                     <div className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[color:var(--brand-100)]">
                         <Image
-                            src="/images/farmer-catfish-placeholder.svg"
-                            alt="Farm owner holding a healthy catfish"
+                            src="/images/hct/farmer-catfish.jpg"
+                            alt="HCT Fish Farms farmer holding a healthy catfish"
                             fill
                             sizes="(max-width: 767px) 100vw, 50vw"
                             className="object-cover"

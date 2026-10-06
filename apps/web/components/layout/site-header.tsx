@@ -3,6 +3,7 @@ import { Fish, Menu, MessageCircle, Phone } from 'lucide-react';
 import { getCatalog } from '@/lib/catalog-api';
 import { CartButton } from '@/components/cart/cart-button';
 import { AccountNav } from './account-nav';
+import { BrandLockup } from './brand-lockup';
 
 const links = [
     { label: 'Home', href: '/' },
@@ -18,20 +19,17 @@ export async function SiteHeader() {
     const whatsapp = catalog?.settings.whatsapp_number;
     const whatsappDigits = whatsapp?.replace(/\D/g, '');
     const whatsappHref = whatsappDigits
-        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi Adesoba Farm, I would like to ask about fresh catfish.')}`
+        ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent('Hi HCT Fish Farms, I would like to ask about fresh catfish.')}`
         : null;
 
     return (
         <header className="sticky top-0 z-40 border-b border-line-soft bg-header-glass backdrop-blur-sm">
             <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-8 lg:px-12">
-                <Link href="/" className="flex items-center gap-3" aria-label="Adesoba Catfish Farm home">
+                <Link href="/" className="flex items-center gap-3" aria-label="HCT Fish Farms home">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--brand-700)] text-white">
                         <Fish aria-hidden="true" size={21} strokeWidth={1.8} />
                     </div>
-                    <div>
-                        <p className="font-display text-lg font-bold text-[color:var(--brand-900)]">Adesoba</p>
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-ink-muted">Catfish Farm</p>
-                    </div>
+                    <BrandLockup />
                 </Link>
 
                 <nav className="hidden items-center gap-8 text-sm font-medium text-ink lg:flex" aria-label="Main navigation">

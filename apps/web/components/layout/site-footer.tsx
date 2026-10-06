@@ -1,4 +1,5 @@
 import { getCatalog } from '@/lib/catalog-api';
+import { BrandLockup } from './brand-lockup';
 
 export async function SiteFooter() {
     const catalog = await getCatalog();
@@ -10,9 +11,9 @@ export async function SiteFooter() {
         <footer className="bg-[color:var(--brand-900)] text-ink-on-dark">
             <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 md:grid-cols-3 md:px-8 lg:px-12">
                 <div>
-                    <p className="font-display text-2xl font-bold">Adesoba</p>
+                    <BrandLockup footer />
                     <p className="mt-3 max-w-xs text-sm text-ink-on-dark">
-                        Healthy Fish. Better Business. Fresh catfish direct from our farm.
+                        Healthy Fish. Better Business. Fresh catfish from HCT Fish Farms.
                         {settings ? <span className="mt-2 block">{settings.farm_address}</span> : null}
                     </p>
                 </div>
@@ -33,7 +34,7 @@ export async function SiteFooter() {
                         {phone ? <li><a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Call us</a></li> : null}
                         {whatsappDigits ? <li><a href={`https://wa.me/${whatsappDigits}`}>WhatsApp</a></li> : null}
                         {settings?.business_hours.map((hours) => <li key={hours}>{hours}</li>)}
-                        <li>© {new Date().getFullYear()} Adesoba</li>
+                        <li>© {new Date().getFullYear()} HCT Fish Farms</li>
                     </ul>
                 </div>
             </div>
